@@ -1,0 +1,38 @@
+rules:
+
+  - id: IRRIGATE_CAPSICUM_A
+
+    triggers:
+      - S1_SOIL_MOISTURE_LOW
+
+    conditions:
+      - left: energy.battery_soc_percent
+        op: ">"
+        right: 20
+
+      - left: water.tank_level_percent
+        op: ">"
+        right: 25
+
+    actions:
+      - type: IRRIGATE_ZONE
+        zone: capsicum_A
+        params:
+          duration_minutes: 15
+          flow_rate_lpm: 10
+
+
+  - id: LOW_BATTERY_SHED
+
+    triggers:
+      - E1_BATTERY_LOW
+
+    conditions: []
+
+    actions:
+      - type: LOAD_SHEDDING
+        params:
+          level: medium
+
+      - type: SUSPEND_IRRIGATION_ALL
+        params: {}

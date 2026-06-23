@@ -1,0 +1,117 @@
+water:
+
+  tank_1:
+    id: tank_1
+    name: Main Storage Tank 1
+    type: tank
+
+    capacity_l: 27000
+    elevation_m: 12
+
+    sensors:
+      - tank_1_level
+      - tank_1_flow_in
+      - tank_1_flow_out
+
+    dependencies:
+      - bore_1
+      - bore_2
+
+    metadata:
+      material: poly
+      installation_year: 2018
+
+
+  tank_2:
+    id: tank_2
+    name: Tank 2
+    type: tank
+
+    capacity_l: 27000
+    elevation_m: 11
+
+    sensors:
+      - tank_2_level
+      - tank_2_flow_in
+      - tank_2_flow_out
+
+    dependencies:
+      - bore_1
+
+
+  tank_3:
+    id: tank_3
+    name: Tank 3
+    type: tank
+
+    capacity_l: 27000
+    elevation_m: 10
+
+    sensors:
+      - tank_3_level
+      - tank_3_flow_in
+      - tank_3_flow_out
+
+
+  tank_4:
+    id: tank_4
+    name: Tank 4
+    type: tank
+
+    capacity_l: 27000
+    elevation_m: 10
+
+    sensors:
+      - tank_4_level
+      - tank_4_flow_in
+      - tank_4_flow_out
+
+
+  tank_5:
+    id: tank_5
+    name: Tank 5
+    type: tank
+
+    capacity_l: 27000
+    elevation_m: 9
+
+    sensors:
+      - tank_5_level
+      - tank_5_flow_in
+      - tank_5_flow_out
+
+
+  bore_1:
+    id: bore_1
+    name: Bore 1
+    type: bore
+
+    sensors:
+      - bore_1_flow
+      - bore_1_pressure
+
+    metadata:
+      depth_m: 18
+
+
+  bore_2:
+    id: bore_2
+    name: Bore 2
+    type: bore
+
+    sensors:
+      - bore_2_flow
+      - bore_2_pressure
+
+    metadata:
+      depth_m: 22
+
+
+  irrigation_main:
+    id: irrigation_main
+    name: Main Irrigation Line
+    type: pipeline
+
+    sensors:
+      - irrigation_flow
+      - irrigation_pressure
