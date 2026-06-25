@@ -1,28 +1,25 @@
-# core/state_builder.py
+from core.models import SensorState
+from datetime import datetime
+
 
 class StateBuilder:
 
     def build(self, registry):
 
         state = {
-            "sensors": {},
-            "assets": {},
-            "derived": {},
+            "timestamp": datetime.utcnow(),
+            "sensors": {}
         }
 
-        for asset_id, asset in registry.assets.items():
-
-            state["assets"][asset_id] = {
-                "type": asset.type,
-                "status": "initializing"
-            }
+        for asset in registry.assets.values():
 
             for sensor in asset.sensors:
 
-                state["sensors"][sensor] = {
-                    "value": 0.0,
-                    "quality": 1.0,
-                    "last_update": None
-                }
+                state["sensors"][sensor] = SensorState(
+                    value=0.0,
+                    quality=1.0,
+                    timestamp=datetime.utcnow(),
+                    source="init"
+                )
 
         return state

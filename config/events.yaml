@@ -1,0 +1,28 @@
+rules:
+
+  - id: tank_low
+    asset_type: tank
+    sensor_suffix: level
+    event_id: E_TANK_LOW
+    condition:
+      op: lt
+      value: 25
+    severity: 3
+
+  - id: battery_low
+    asset_type: battery_bank
+    sensor_suffix: soc
+    event_id: E_BATTERY_LOW
+    condition:
+      op: lt
+      value: 20
+    severity: 5
+
+  - id: flow_anomaly
+    asset_type: bore
+    sensor_suffix: flow
+    event_id: E_FLOW_ANOMALY
+    condition:
+      op: lt
+      value: 0
+    severity: 2

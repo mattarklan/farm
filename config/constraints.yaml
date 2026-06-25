@@ -1,0 +1,23 @@
+constraints:
+
+  - id: no_irrigation_low_pressure
+    action_type: SUSPEND_IRRIGATION_ZONE
+    condition:
+      water_pressure_min: 120
+    mode: block
+    reason: "Insufficient pressure"
+
+  - id: no_load_shed_when_critical_soc
+    action_type: LOAD_SHEDDING
+    condition:
+      battery_soc_min: 10
+    mode: block
+    reason: "Battery critically low"
+
+  - id: valve_close_flow_spike_delay
+    action_type: SHUT_OFF_VALVE
+    condition:
+      max_flow_change_per_min: 20
+    mode: delay
+    delay_seconds: 60
+    reason: "Flow instability protection"

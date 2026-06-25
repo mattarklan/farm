@@ -1,33 +1,12 @@
-# core/rule_engine.py
+from datetime import datetime
+from core.models import Action
+import uuid
 
 
 class RuleEngine:
 
-    def __init__(self, rules):
-        self.rules = rules or self._default_rules()
-
-
-    def _default_rules(self):
-
-        return [
-            {
-                "event_id": "E_TANK_LOW",
-                "action": "SUSPEND_IRRIGATION_ZONE",
-                "params": {"mode": "conservative"},
-                "priority": 2
-            },
-            {
-                "event_id": "E_BATTERY_LOW",
-                "action": "LOAD_SHEDDING",
-                "params": {"level": "medium"},
-                "priority": 5
-            },
-            {
-                "event_id": "E_FLOW_ANOMALY",
-                "action": "SHUT_OFF_VALVE",
-                "params": {}
-            }
-        ]
+    def __init__(self, rule_config: dict):
+        self.rules = rule_config.get("rules", [])
 
 
     def process(self, events, state):
@@ -38,32 +17,117 @@ class RuleEngine:
 
             for rule in self.rules:
 
-                if rule["event_id"] == event["event_id"]:
+                # -------------------------
+                # 1. trigger match
+                # -------------------------
+                if event.event_type not in rule.get("triggers", []):
+                    continue
 
-                    actions.append({
-                        "action": rule["action"],
-                        "params": rule.get("params", {}),
-                        "triggered_by": event,
-                        "priority": rule.get("priority", 1)
-                    })
+                # -------------------------
+                # 2. conditions (ALL must pass)
+                # -------------------------
+                if not self._evaluate_conditions(rule.get("conditions", []), state):
+                    continue
 
-        return self._resolve_conflicts(actions)
+                # -------------------------
+                # 3. expand actions
+                # -------------------------
+                for action_def in rule.get("actions", []):
+
+                    actions.append(
+                        Action(
+                            id=str(uuid.uuid4()),
+                            action_type=action_def["type"],
+                            target=action_def.get("zone"),
+                            parameters=action_def.get("params", {}),
+                            priority=rule.get("priority", 1),
+                            created_from_event=event.id,
+                            timestamp=datetime.utcnow()
+                        )
+                    )
+
+        return self._resolve(actions)
 
 
-    def _resolve_conflicts(self, actions):
+    # -------------------------------------------------
+    # CONDITION ENGINE (AND logic across list)
+    # -------------------------------------------------
 
-        # simple priority merge (higher wins)
-        actions.sort(key=lambda x: x["priority"], reverse=True)
+    def _evaluate_conditions(self, conditions, state):
+
+        if not conditions:
+            return True
+
+        for c in conditions:
+
+            left_value = self._resolve_path(c["left"], state)
+            right_value = c["right"]
+            op = c["op"]
+
+            if not self._compare(left_value, op, right_value):
+                return False
+
+        return True
+
+
+    # -------------------------------------------------
+    # SIMPLE DOT-PATH RESOLVER
+    # e.g. "energy.battery_soc_percent"
+    # -------------------------------------------------
+
+    def _resolve_path(self, path, state):
+
+        parts = path.split(".")
+
+        value = state
+
+        for p in parts:
+            value = value[p] if isinstance(value, dict) else getattr(value, p)
+
+        return value
+
+
+    # -------------------------------------------------
+    # COMPARISON ENGINE
+    # -------------------------------------------------
+
+    def _compare(self, left, op, right):
+
+        if op == ">":
+            return left > right
+        if op == "<":
+            return left < right
+        if op == ">=":
+            return left >= right
+        if op == "<=":
+            return left <= right
+        if op == "==":
+            return left == right
+        if op == "!=":
+            return left != right
+
+        return False
+
+
+    # -------------------------------------------------
+    # DEDUP + PRIORITY RESOLUTION
+    # -------------------------------------------------
+
+    def _resolve(self, actions):
+
+        actions.sort(key=lambda a: a.priority, reverse=True)
 
         seen = set()
         final = []
 
         for a in actions:
 
-            key = a["action"]
+            key = (a.action_type, a.target)
 
-            if key not in seen:
-                final.append(a)
-                seen.add(key)
+            if key in seen:
+                continue
+
+            seen.add(key)
+            final.append(a)
 
         return final

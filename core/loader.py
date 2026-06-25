@@ -14,8 +14,26 @@ class Asset:
 
 
 class Registry:
+
     def __init__(self):
-        self.assets: Dict[str, Asset] = {}
+
+        self.assets = {}
+
+        self.sensor_index = {}
+
+    def build_indexes(self):
+
+        self.sensor_index.clear()
+
+        for asset in self.assets.values():
+
+            for sensor in asset.sensors:
+
+                self.sensor_index[sensor] = asset
+
+    def get_asset_from_sensor(self, sensor_name):
+
+        return self.sensor_index.get(sensor_name)
 
 
 class RegistryLoader:
@@ -43,7 +61,7 @@ class RegistryLoader:
                 )
 
                 registry.assets[asset.id] = asset
-
+        registry.build_indexes()
         return registry
 
     def _validate(self, asset_id, cfg):
