@@ -1,25 +1,18 @@
 from core.models import SensorState
 from datetime import datetime
 
-
 class StateBuilder:
-
-    def build(self, registry):
-
+    def build(self, db, registry):
+        rows = db.latest_readings()
         state = {
             "timestamp": datetime.utcnow(),
             "sensors": {}
         }
-
-        for asset in registry.assets.values():
-
-            for sensor in asset.sensors:
-
-                state["sensors"][sensor] = SensorState(
-                    value=0.0,
-                    quality=1.0,
-                    timestamp=datetime.utcnow(),
-                    source="init"
-                )
-
+        for r in rows:
+            state["sensors"][r["sensor_id"]] = SensorState(
+                value=r["value"],
+                quality=r["quality"],
+                timestamp=r["timestamp"],
+                source=r["source"]
+            )
         return state

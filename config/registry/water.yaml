@@ -1,117 +1,207 @@
 water:
-
   tank_1:
     id: tank_1
     name: Main Storage Tank 1
     type: tank
-
     capacity_l: 27000
     elevation_m: 12
-
     sensors:
       - tank_1_level
       - tank_1_flow_in
       - tank_1_flow_out
-
     dependencies:
       - bore_1
       - bore_2
-
     metadata:
       material: poly
       installation_year: 2018
-
+      gps: [-31.9505, 115.8605]
 
   tank_2:
     id: tank_2
     name: Tank 2
     type: tank
-
     capacity_l: 27000
     elevation_m: 11
-
     sensors:
       - tank_2_level
       - tank_2_flow_in
       - tank_2_flow_out
-
     dependencies:
       - bore_1
-
+    metadata:
+      gps: [-31.9506, 115.8606]
 
   tank_3:
     id: tank_3
     name: Tank 3
     type: tank
-
     capacity_l: 27000
     elevation_m: 10
-
     sensors:
       - tank_3_level
       - tank_3_flow_in
       - tank_3_flow_out
-
+    metadata:
+      gps: [-31.9507, 115.8607]
 
   tank_4:
     id: tank_4
     name: Tank 4
     type: tank
-
     capacity_l: 27000
     elevation_m: 10
-
     sensors:
       - tank_4_level
       - tank_4_flow_in
       - tank_4_flow_out
-
+    metadata:
+      gps: [-31.9508, 115.8607]
 
   tank_5:
     id: tank_5
     name: Tank 5
     type: tank
-
     capacity_l: 27000
     elevation_m: 9
-
     sensors:
       - tank_5_level
       - tank_5_flow_in
       - tank_5_flow_out
+    metadata:
+      gps: [-31.9509, 115.8608]
 
+  header_tank_1:
+    id: header_tank_1
+    name: Header Tank Zone 1
+    type: header_tank
+    capacity_l: 2000
+    elevation_m: 6
+    sensors:
+      - header_1_level
+      - header_1_flow_in
+      - header_1_flow_out
+    dependencies:
+      - tank_1
+      - tank_2
+    metadata:
+      gps: [-31.9510, 115.8609]
+
+  header_tank_2:
+    id: header_tank_2
+    name: Header Tank Zone 2
+    type: header_tank
+    capacity_l: 2000
+    elevation_m: 6
+    sensors:
+      - header_2_level
+      - header_2_flow_in
+      - header_2_flow_out
+    dependencies:
+      - tank_3
+      - tank_4
+    metadata:
+      gps: [-31.9511, 115.8610]
 
   bore_1:
     id: bore_1
     name: Bore 1
     type: bore
-
     sensors:
       - bore_1_flow
       - bore_1_pressure
-
     metadata:
       depth_m: 18
-
+      gps: [-31.9512, 115.8611]
 
   bore_2:
     id: bore_2
     name: Bore 2
     type: bore
-
     sensors:
       - bore_2_flow
       - bore_2_pressure
-
     metadata:
       depth_m: 22
+      gps: [-31.9513, 115.8612]
 
+  rain_harvesting:
+    id: rain_harvesting
+    name: Rain Harvesting System
+    type: rain_harvest
+    sensors:
+      - rain_flow_in
+      - rain_intensity
+    dependencies:
+      - tank_1
+      - tank_2
+    metadata:
+      roof_area_m2: 400
+      gps: [-31.9504, 115.8604]
 
   irrigation_main:
     id: irrigation_main
     name: Main Irrigation Line
     type: pipeline
-
     sensors:
       - irrigation_flow
       - irrigation_pressure
+    metadata:
+      gps: [-31.9514, 115.8613]
+
+zones:
+  zone_capsicum_a:
+    id: zone_capsicum_a
+    name: Capsicum Zone A
+    type: growing_zone
+    crop: capsicum
+    sensors:
+      - zone_a_soil_moisture
+      - zone_a_flow_in
+    dependencies:
+      - header_tank_1
+    metadata:
+      area_m2: 500
+      gps: [-31.9515, 115.8614]
+
+  zone_capsicum_b:
+    id: zone_capsicum_b
+    name: Capsicum Zone B
+    type: growing_zone
+    crop: capsicum
+    sensors:
+      - zone_b_soil_moisture
+      - zone_b_flow_in
+    dependencies:
+      - header_tank_1
+    metadata:
+      area_m2: 500
+      gps: [-31.9516, 115.8615]
+
+  zone_tomato_a:
+    id: zone_tomato_a
+    name: Tomato Zone A
+    type: growing_zone
+    crop: tomato
+    sensors:
+      - zone_c_soil_moisture
+      - zone_c_flow_in
+    dependencies:
+      - header_tank_2
+    metadata:
+      area_m2: 400
+      gps: [-31.9517, 115.8616]
+
+  zone_tomato_b:
+    id: zone_tomato_b
+    name: Tomato Zone B
+    type: growing_zone
+    crop: tomato
+    sensors:
+      - zone_d_soil_moisture
+      - zone_d_flow_in
+    dependencies:
+      - header_tank_2
+    metadata:
+      area_m2: 400
+      gps: [-31.9518, 115.8617]

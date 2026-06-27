@@ -1,38 +1,241 @@
 rules:
 
+  # --------------------------
+  # IRRIGATION
+  # --------------------------
+
   - id: IRRIGATE_CAPSICUM_A
-
     triggers:
-      - S1_SOIL_MOISTURE_LOW
-
+      - E_SOIL_MOISTURE_LOW
     conditions:
       - left: energy.battery_soc_percent
         op: ">"
         right: 20
-
       - left: water.tank_level_percent
         op: ">"
         right: 25
-
     actions:
       - type: IRRIGATE_ZONE
-        zone: capsicum_A
+        zone: zone_capsicum_a
         params:
           duration_minutes: 15
           flow_rate_lpm: 10
 
+  - id: IRRIGATE_CAPSICUM_B
+    triggers:
+      - E_SOIL_MOISTURE_LOW
+    conditions:
+      - left: energy.battery_soc_percent
+        op: ">"
+        right: 20
+      - left: water.tank_level_percent
+        op: ">"
+        right: 25
+    actions:
+      - type: IRRIGATE_ZONE
+        zone: zone_capsicum_b
+        params:
+          duration_minutes: 15
+          flow_rate_lpm: 10
+
+  - id: IRRIGATE_TOMATO_A
+    triggers:
+      - E_SOIL_MOISTURE_LOW
+    conditions:
+      - left: energy.battery_soc_percent
+        op: ">"
+        right: 20
+      - left: water.tank_level_percent
+        op: ">"
+        right: 25
+    actions:
+      - type: IRRIGATE_ZONE
+        zone: zone_tomato_a
+        params:
+          duration_minutes: 20
+          flow_rate_lpm: 12
+
+  - id: IRRIGATE_TOMATO_B
+    triggers:
+      - E_SOIL_MOISTURE_LOW
+    conditions:
+      - left: energy.battery_soc_percent
+        op: ">"
+        right: 20
+      - left: water.tank_level_percent
+        op: ">"
+        right: 25
+    actions:
+      - type: IRRIGATE_ZONE
+        zone: zone_tomato_b
+        params:
+          duration_minutes: 20
+          flow_rate_lpm: 12
+
+  # --------------------------
+  # TANK MANAGEMENT
+  # --------------------------
+
+  - id: FILL_TANK_FROM_BORE_1
+    triggers:
+      - E_TANK_LOW
+    conditions:
+      - left: water.bore_1_pressure
+        op: ">"
+        right: 150
+    actions:
+      - type: OPEN_VALVE
+        zone: null
+        params:
+          valve_id: bore_1_to_tank_1
+          duration_minutes: 60
+
+  - id: FILL_TANK_FROM_BORE_2
+    triggers:
+      - E_TANK_LOW
+    conditions:
+      - left: water.bore_2_pressure
+        op: ">"
+        right: 150
+    actions:
+      - type: OPEN_VALVE
+        zone: null
+        params:
+          valve_id: bore_2_to_tank_2
+          duration_minutes: 60
+
+  - id: BALANCE_TANKS
+    triggers:
+      - E_TANK_IMBALANCE
+    conditions:
+      - left: energy.battery_soc_percent
+        op: ">"
+        right: 30
+    actions:
+      - type: OPEN_VALVE
+        zone: null
+        params:
+          valve_id: tank_balance_line
+          duration_minutes: 30
+
+  - id: CLOSE_BORE_ON_TANK_FULL
+    triggers:
+      - E_TANK_FULL
+    conditions: []
+    actions:
+      - type: CLOSE_VALVE
+        zone: null
+        params:
+          valve_id: bore_1_to_tank_1
+      - type: CLOSE_VALVE
+        zone: null
+        params:
+          valve_id: bore_2_to_tank_2
+
+  # --------------------------
+  # ENERGY
+  # --------------------------
 
   - id: LOW_BATTERY_SHED
-
     triggers:
-      - E1_BATTERY_LOW
-
+      - E_BATTERY_LOW
     conditions: []
-
     actions:
       - type: LOAD_SHEDDING
+        zone: null
         params:
           level: medium
-
       - type: SUSPEND_IRRIGATION_ALL
         params: {}
+
+  - id: CRITICAL_BATTERY_SHED
+    triggers:
+      - E_BATTERY_CRITICAL
+    conditions: []
+    actions:
+      - type: LOAD_SHEDDING
+        zone: null
+        params:
+          level: high
+      - type: SUSPEND_IRRIGATION_ALL
+        params: {}
+      - type: CLOSE_ALL_VALVES
+        params: {}
+
+  - id: BATTERY_RESTORED
+    triggers:
+      - E_BATTERY_RESTORED
+    conditions: []
+    actions:
+      - type: RESUME_IRRIGATION
+        params: {}
+      - type: LOAD_SHEDDING
+        zone: null
+        params:
+          level: none
+
+  # --------------------------
+  # LEAK DETECTION
+  # --------------------------
+
+  - id: SUSPECTED_LEAK_MAIN_LINE
+    triggers:
+      - E_FLOW_ANOMALY
+    conditions: []
+    actions:
+      - type: ALERT
+        zone: null
+        params:
+          message: "Suspected leak on main irrigation line"
+          severity: high
+      - type: CLOSE_VALVE
+        zone: null
+        params:
+          valve_id: irrigation_main_inlet
+
+  - id: SUSPECTED_LEAK_ZONE
+    triggers:
+      - E_ZONE_FLOW_ANOMALY
+    conditions: []
+    actions:
+      - type: ALERT
+        zone: null
+        params:
+          message: "Suspected leak in zone"
+          severity: high
+      - type: SUSPEND_IRRIGATION_ZONE
+        params: {}
+
+  # --------------------------
+  # BORE PROTECTION
+  # --------------------------
+
+  - id: BORE_LOW_PRESSURE
+    triggers:
+      - E_BORE_PRESSURE_LOW
+    conditions: []
+    actions:
+      - type: CLOSE_VALVE
+        zone: null
+        params:
+          valve_id: bore_1_to_tank_1
+      - type: ALERT
+        zone: null
+        params:
+          message: "Bore pressure low - shutting down bore pump"
+          severity: medium
+
+  - id: BORE_REST_CYCLE
+    triggers:
+      - E_BORE_RUNTIME_EXCEEDED
+    conditions: []
+    actions:
+      - type: CLOSE_VALVE
+        zone: null
+        params:
+          valve_id: bore_1_to_tank_1
+      - type: SCHEDULE_RESUME
+        zone: null
+        params:
+          delay_minutes: 60
+          valve_id: bore_1_to_tank_1

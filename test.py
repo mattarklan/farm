@@ -8,6 +8,8 @@ from core.pipeline import Pipeline
 from core.derived import DerivedEngine
 from core.window_store import RollingWindowStore
 from core.decision_memory import DecisionMemory
+from core.sensor_store import SensorStore
+from datetime import datetime, timezone
 import yaml
 
 # -------------------------
@@ -23,11 +25,16 @@ with open("config/constraints.yaml") as f:
     constraint_config = yaml.safe_load(f)
 
 # -------------------------
+# DATABASE + SEED
+# -------------------------
+db = SensorStore("farm.db")
+db.record("tank_1_level", 15.0, datetime.now(timezone.utc))
+db.record("tank_2_level", 80.0, datetime.now(timezone.utc))
+
+# -------------------------
 # STATE
 # -------------------------
-state = StateBuilder().build(registry)
-state["sensors"]["tank_1_level"].value = 15
-state["sensors"]["tank_2_level"].value = 80
+state = StateBuilder().build(db, registry)
 
 # -------------------------
 # COMPONENTS
@@ -58,7 +65,11 @@ result = pipeline.run(state)
 # -------------------------
 # OUTPUT
 # -------------------------
-print("\nEVENTS:\n", result["events"])
+print("\nEVENTS:")
+for ev in result["events"]:
+    # Inserts a newline right before the data dictionary starts
+    formatted_event = repr(ev).replace(", timestamp=", ",\n timestamp=")
+    print(f" [{formatted_event}]")
 print("\nACTIONS:\n", result["actions"])
 print("\nALLOWED:\n", result["allowed"])
 print("\nBLOCKED:\n", result["blocked"])

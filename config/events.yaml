@@ -1,5 +1,4 @@
 rules:
-
   - id: tank_low
     asset_type: tank
     sensor_suffix: level
@@ -8,6 +7,16 @@ rules:
       op: lt
       value: 25
     severity: 3
+    # Added for RuleEngine:
+    triggers:
+      - E_TANK_LOW
+    priority: 3
+    actions:
+      - type: START_PUMP
+        zone: bore_1
+        params:
+          duration_minutes: 60
+          target_flow_rate: 12.5
 
   - id: battery_low
     asset_type: battery_bank
@@ -17,6 +26,13 @@ rules:
       op: lt
       value: 20
     severity: 5
+    # Added for RuleEngine:
+    triggers:
+      - E_BATTERY_LOW
+    priority: 5
+    actions:
+      - type: ENABLE_POWER_SAVE
+        zone: telemetry_node
 
   - id: flow_anomaly
     asset_type: bore
@@ -26,3 +42,7 @@ rules:
       op: lt
       value: 0
     severity: 2
+    # Added for RuleEngine:
+    triggers:
+      - E_FLOW_ANOMALY
+    actions: []

@@ -1,5 +1,5 @@
 constraints:
-
+  # --- Existing Constraints ---
   - id: no_irrigation_low_pressure
     action_type: SUSPEND_IRRIGATION_ZONE
     condition:
@@ -21,3 +21,29 @@ constraints:
     mode: delay
     delay_seconds: 60
     reason: "Flow instability protection"
+
+  # --- New Infrastructure Safety Guards ---
+  - id: prevent_bore_run_dry
+    action_type: START_PUMP
+    condition:
+      # If the source water source is below a critical threshold, block execution
+      source_tank_level_min: 20.0
+    mode: block
+    reason: "Aborting pump start: Source tank/bore water level is too low to safely pump."
+
+  - id: prevent_tank_overflow
+    action_type: START_PUMP
+    condition:
+      # Don't try pumping into a tank that's already mostly full
+      target_tank_level_max: 90.0
+    mode: block
+    reason: "Aborting pump start: Destination tank is already near full capacity."
+
+  - id: throttle_high_frequency_pumping
+    action_type: START_PUMP
+    condition:
+      # Protect pump motors from cycling on and off rapidly (short-cycling)
+      min_time_since_last_run_minutes: 15
+    mode: delay
+    delay_seconds: 900
+    reason: "Delaying pump ignition to prevent motor wear from rapid cycling."
