@@ -15,7 +15,7 @@ water:
     metadata:
       material: poly
       installation_year: 2018
-      gps: [-31.9505, 115.8605]
+      gps: [-31.950331, 115.86022]
 
   tank_2:
     id: tank_2
@@ -30,7 +30,7 @@ water:
     dependencies:
       - bore_1
     metadata:
-      gps: [-31.9506, 115.8606]
+      gps: [-31.950341, 115.86021]
 
   tank_3:
     id: tank_3
@@ -43,7 +43,7 @@ water:
       - tank_3_flow_in
       - tank_3_flow_out
     metadata:
-      gps: [-31.9507, 115.8607]
+      gps: [-31.950351, 115.86021]
 
   tank_4:
     id: tank_4
@@ -56,7 +56,7 @@ water:
       - tank_4_flow_in
       - tank_4_flow_out
     metadata:
-      gps: [-31.9508, 115.8607]
+      gps: [-31.95031, 115.86025]
 
   tank_5:
     id: tank_5
@@ -69,7 +69,7 @@ water:
       - tank_5_flow_in
       - tank_5_flow_out
     metadata:
-      gps: [-31.9509, 115.8608]
+      gps: [-31.950366, 115.860275]
 
   header_tank_1:
     id: header_tank_1
@@ -85,23 +85,7 @@ water:
       - tank_1
       - tank_2
     metadata:
-      gps: [-31.9510, 115.8609]
-
-  header_tank_2:
-    id: header_tank_2
-    name: Header Tank Zone 2
-    type: header_tank
-    capacity_l: 2000
-    elevation_m: 6
-    sensors:
-      - header_2_level
-      - header_2_flow_in
-      - header_2_flow_out
-    dependencies:
-      - tank_3
-      - tank_4
-    metadata:
-      gps: [-31.9511, 115.8610]
+      gps: [-31.950331, 115.860287]
 
   bore_1:
     id: bore_1
@@ -112,7 +96,7 @@ water:
       - bore_1_pressure
     metadata:
       depth_m: 18
-      gps: [-31.9512, 115.8611]
+      gps: [-31.950304, 115.860304]
 
   bore_2:
     id: bore_2
@@ -123,7 +107,7 @@ water:
       - bore_2_pressure
     metadata:
       depth_m: 22
-      gps: [-31.9513, 115.8612]
+      gps: [-31.950841, 115.860527]
 
   rain_harvesting:
     id: rain_harvesting
@@ -137,7 +121,7 @@ water:
       - tank_2
     metadata:
       roof_area_m2: 400
-      gps: [-31.9504, 115.8604]
+      gps: [-31.950292, 115.860232]
 
   irrigation_main:
     id: irrigation_main
@@ -147,7 +131,7 @@ water:
       - irrigation_flow
       - irrigation_pressure
     metadata:
-      gps: [-31.9514, 115.8613]
+      gps: [-31.950844, 115.860528]
 
 zones:
   zone_capsicum_a:

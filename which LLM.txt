@@ -1,0 +1,28 @@
+## Short log summary (dev-facing)
+
+Designed an offline farm automation architecture split into 3 layers:
+
+* **Pi 4 (Operator):** deterministic Python system (~<1k LOC) handling sensors, irrigation, load shedding, UI, and final execution under governance constraints.
+* **GPU PC (Planner):** runs local LLM (Qwen 7B/8B; 14B used only for offline testing). Generates irrigation rules, crop plans, and long-term strategies from aggregated sensor trends (not raw data). Uses RTX 3050/3060-class GPU depending on budget.
+* **Pi 4/5 Camera Nodes (Perception):** low-FPS (≈1 FPS) multi-camera setup running lightweight CV. Outputs structured detections (pests, animals, plant health) rather than images.
+
+Key design decisions:
+
+* LLM is advisory only; never executes actions.
+* Governance layer validates all LLM outputs via schema + constraints + simulation.
+* Vision systems are separate from LLM (no image ingestion into planner).
+* Data passed to LLM is aggregated state vectors, not raw streams.
+
+Hardware conclusions:
+
+* RTX 3050 is acceptable entry-level; 3060 preferred due to VRAM.
+* Pi 4 is sufficient for deterministic control layer.
+* Pi 5 + optional AI HAT improves edge vision throughput but not reasoning.
+
+Testing decision:
+
+* Qwen 14B tested locally (CPU laptop) purely for structured-output quality and reasoning consistency, not performance.
+
+Main risk identified:
+
+* Not hardware, but state representation quality between layers (schema design + aggregation).

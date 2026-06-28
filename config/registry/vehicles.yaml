@@ -1,0 +1,17 @@
+tractors:
+  tractor_100:
+    id: tractor_100
+    name: Snoopy
+    type: tractor
+    elevation_m: 12
+    sensors:
+      - status
+      - fuel
+      - engine temperature
+      - battery voltage
+      - hello
+      - helulo
+    metadata:
+      hp: 100
+      latest service: 2018
+      gps: [-31.950441, 115.86032]
