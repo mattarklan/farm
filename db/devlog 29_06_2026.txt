@@ -1,0 +1,274 @@
+# Farm Telemetry + Simulation System — Project Status
+
+## 1. What the system can do now
+
+### A. Full simulated farm telemetry pipeline
+
+* Generates synthetic farm sensor data via Python simulator
+* Supports multiple device types:
+
+  * soil moisture zones
+  * water tanks
+  * batteries / power systems
+  * bores
+  * vehicles
+* Device behavior includes basic dynamics:
+
+  * drying soil curves
+  * tank fill/empty cycles
+  * battery discharge
+  * vehicle movement accumulation
+
+### B. MQTT-based transport layer
+
+* Mosquitto broker used as message bus
+* Devices publish JSON telemetry to topics like:
+
+  * `farm/soil/...`
+  * `farm/water/...`
+  * `farm/power/...`
+  * `farm/vehicle/...`
+
+### C. Ingestion system (SQLite-backed)
+
+* Subscribes to all MQTT topics (`farm/#`)
+* Normalizes incoming messages into:
+
+  * `raw_telemetry` (append-only log)
+  * `latest_values` (current state per device/metric)
+  * `hourly_summary` (min/max/avg/count aggregation)
+
+### D. State snapshot layer (decision-friendly abstraction)
+
+* Periodically builds compressed “farm state” objects:
+
+  * per-device metrics
+  * simple trend classification (rising/falling/stable)
+* Stores snapshots in `state_snapshot`
+* Designed as primary input for:
+
+  * deterministic decision engine (external)
+  * LLM reasoning layer
+
+### E. FastAPI state API (clean interface layer)
+
+Exposes:
+
+* `GET /state/latest`
+
+  * returns latest snapshot of all devices
+
+* `GET /state/zone/{id}`
+
+  * returns latest state for a single device/zone
+
+This is the intended **single read interface** for all higher-level systems.
+
+---
+
+## 2. What the system does NOT do (explicitly out of scope / missing)
+
+### A. No production-grade reliability
+
+* No MQTT authentication / TLS
+* No retry logic or offline buffering
+* No message deduplication or ordering guarantees
+* No backpressure handling
+
+### B. No scalable data infrastructure
+
+* SQLite only (single-process assumption)
+* No partitioning, indexing strategy, or WAL tuning
+* No distributed ingestion capability
+
+### C. No real sensor integration
+
+* Only simulated devices exist
+* No LoRa gateway integration
+* No real ESP32 firmware integration layer
+
+### D. No proper event/alert system
+
+* No structured alert engine (only basic trend classification)
+* No rule engine for anomalies or thresholds
+* No event persistence model beyond basic summaries
+
+### E. No multi-tenant or security model
+
+* No user authentication
+* No role-based access
+* No device identity verification
+
+### F. No deterministic decision engine integration (external)
+
+* System assumes:
+
+  * decisions are made elsewhere
+  * API only provides state inputs
+
+### G. No LLM orchestration layer
+
+* No prompt construction system
+* No context window management
+* No tool-calling interface or schema enforcement layer for LLM outputs
+
+---
+
+## 3. What is currently well-architected
+
+### Strong design decisions already in place
+
+* Clear separation of concerns:
+
+  * transport (MQTT)
+  * ingestion (Python service)
+  * storage (SQLite)
+  * state abstraction (snapshot layer)
+  * access layer (FastAPI)
+
+* Correct abstraction direction:
+
+  * raw telemetry → aggregates → state snapshots → API
+
+* Sensor simulation is realistic enough to:
+
+  * test trends
+  * validate ingestion
+  * stress decision logic
+
+* MQTT topic model is stable and scalable
+
+---
+
+## 4. What is required to make this deployable (production-ready)
+
+### A. Replace SQLite for real deployment scale
+
+Required upgrade:
+
+* PostgreSQL (minimum)
+* or TimescaleDB (preferred for telemetry)
+
+Reason:
+
+* concurrent writes
+* long-term retention
+* indexing on time-series queries
+
+---
+
+### B. Introduce a queue or buffer layer (optional but recommended)
+
+Add between MQTT and ingestion:
+
+* Redis Streams / NATS / Kafka (depending on scale)
+
+Purpose:
+
+* decouple ingestion from storage speed
+* prevent data loss during spikes
+
+---
+
+### C. Harden MQTT layer
+
+* authentication (username/password or certs)
+* TLS encryption
+* topic ACLs
+* broker persistence tuning
+
+---
+
+### D. Replace polling snapshot generator with event-driven aggregation (optional improvement)
+
+Current:
+
+* periodic snapshot builder
+
+Better:
+
+* incremental state updates triggered by ingestion
+
+---
+
+### E. Add schema enforcement layer
+
+Currently:
+
+* flexible JSON payloads
+
+Needed:
+
+* strict schema validation (Pydantic or JSON Schema)
+
+Prevents:
+
+* inconsistent metric naming
+* broken downstream assumptions
+
+---
+
+### F. Add observability
+
+Required for deployment:
+
+* structured logs
+* metrics (Prometheus)
+* ingestion rate monitoring
+* queue lag monitoring
+
+---
+
+### G. Define a formal “state contract” for consumers
+
+The FastAPI layer is good, but needs:
+
+* versioning (`/v1/state/latest`)
+* explicit schema for LLM + deterministic engine consumption
+* guaranteed field stability
+
+---
+
+## 5. Missing conceptual layer (important)
+
+The system currently lacks a formal:
+
+> “decision input contract layer”
+
+Right now `/state/latest` is close, but not strict enough.
+
+Production systems typically separate:
+
+* raw state API (what exists)
+* decision state API (what matters)
+
+Example future evolution:
+
+* `/state/latest` → raw normalized state
+* `/decision/context/{zone}` → fully engineered decision packet
+
+---
+
+## 6. Summary assessment
+
+### Current state:
+
+* Functional end-to-end simulation system
+* Good architecture separation
+* Suitable for development, testing, and prototyping decision logic
+
+### Not yet:
+
+* production system
+* fault-tolerant system
+* scalable telemetry platform
+
+### Core gap:
+
+* infrastructure hardening + strict schema + production storage layer
+
+---
+
+If the next phase is needed, the logical progression is:
+
+**convert this into a containerised system (Docker Compose: MQTT + ingestion + API + DB) with reproducible deployment and strict schemas.**

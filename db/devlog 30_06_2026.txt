@@ -1,0 +1,89 @@
+## Current Architecture
+
+```text
+YAML Registry
+      │
+      ▼
+Simulator (100× capable)
+      │
+      ▼
+MQTT (Mosquitto)
+      │
+      ▼
+Ingestion Service
+      │
+      ▼
+Repository Layer
+      │
+      ▼
+SQLite (farm.db)
+      │
+      ├── raw_telemetry
+      ├── latest_values
+      ├── schema_version
+      └── (future: events, summaries)
+      │
+      ▼
+Snapshot Layer
+      │
+      ▼
+FastAPI
+      │
+      ├── Deterministic Engine
+      └── LLM
+```
+
+## Improvements over the previous design
+
+### Cleaner separation of responsibilities
+
+Each component now has one job:
+
+* Simulator generates telemetry.
+* MQTT transports it.
+* Ingestion validates and normalises it.
+* Repository owns all database access.
+* Snapshot layer produces decision-ready state.
+* API is the only external interface.
+
+### Database abstraction
+
+SQL is no longer scattered through the project. Every database operation goes through `repository.py`, making schema changes much easier.
+
+### Schema migrations
+
+The database is now versioned. Future schema changes can be applied automatically without manual SQL or rebuilding the database.
+
+### Better SQLite configuration
+
+Using `farm.db` with WAL mode allows continuous ingestion while the API, deterministic engine and LLM read concurrently.
+
+### Canonical telemetry
+
+Measurements are normalised, and every reading carries:
+
+* value
+* confidence
+* quality
+* timestamp
+
+This gives downstream consumers a consistent contract.
+
+### Registry as the source of truth
+
+Static asset definitions remain in your YAML registry rather than being duplicated in the database, avoiding two competing sources of configuration.
+
+### Stable API contract
+
+The LLM and deterministic engine both consume the same FastAPI endpoints instead of querying SQLite directly, reducing coupling.
+
+## Still to improve
+
+* Refactor the snapshot layer so it updates incrementally instead of rebuilding everything on each API request.
+* Add hourly/daily aggregation and automatic retention of old raw telemetry.
+* Record deterministic engine decisions and alerts in an immutable `events` table.
+* Implement a proper simulation clock that controls simulated time (including 100×, pause, resume and replay) rather than just scaling timestamps.
+* Replace placeholder confidence calculations with sensor-specific models.
+* Add automated tests for the repository, ingestion pipeline and API.
+
+At this point the project has moved from a collection of scripts to a layered architecture with clear interfaces, making future development considerably easier.

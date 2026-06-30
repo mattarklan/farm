@@ -1,0 +1,150 @@
+# Operator Rule Schema - Placeholder
+# Replace this with the real schema when available.
+# This defines what FOIS must produce for a rule proposal to pass validation.
+#
+# All rules follow the same envelope. The trigger, conditions, and actions
+# are typed and constrained. The validator rejects anything outside this spec.
+
+schema_version: "1.0"
+
+# ---------------------------------------------------------------------------
+# Rule envelope
+# Every rule must have all required top-level fields.
+# ---------------------------------------------------------------------------
+rule:
+  required:
+    - rule_id         # string, unique, snake_case, e.g. irrigate_zone_b_capsicum
+    - description     # human-readable string
+    - enabled         # bool
+    - source          # "operator" | "fois" — fois-generated rules are tagged
+    - proposal_id     # string, required when source=fois, null otherwise
+    - trigger         # see trigger spec below
+    - conditions      # list, may be empty
+    - actions         # list, at least one required
+    - priority        # int 1–100, lower = higher priority
+    - expires_at      # ISO8601 datetime or null (null = no expiry)
+
+  field_types:
+    rule_id: string
+    description: string
+    enabled: boolean
+    source: enum[operator, fois]
+    proposal_id: string_or_null
+    priority: integer
+    expires_at: datetime_or_null
+
+# ---------------------------------------------------------------------------
+# Trigger spec
+# A rule fires when a specific event_type is seen.
+# ---------------------------------------------------------------------------
+trigger:
+  required:
+    - event_type      # must match an event_id defined in events.yaml
+  optional:
+    - zone_id         # if set, rule only fires for this zone
+    - asset_id        # if set, rule only fires for this asset
+
+# ---------------------------------------------------------------------------
+# Condition spec
+# Zero or more conditions must ALL pass for the rule to proceed.
+# ---------------------------------------------------------------------------
+condition:
+  required:
+    - sensor          # sensor_id from registry
+    - operator        # lt | lte | gt | gte | eq | neq
+    - value           # numeric
+  optional:
+    - unit            # informational only, not validated
+
+  operators:
+    - lt
+    - lte
+    - gt
+    - gte
+    - eq
+    - neq
+
+# ---------------------------------------------------------------------------
+# Action spec
+# At least one action required per rule.
+# ---------------------------------------------------------------------------
+action:
+  required:
+    - action_type     # see action_types below
+    - target          # asset_id the action applies to
+  optional:
+    - params          # dict of action-specific parameters (see per-type params)
+
+  action_types:
+
+    open_valve:
+      params:
+        duration_minutes:
+          type: integer
+          min: 1
+          max: 480
+        flow_rate_lpm:
+          type: number
+          min: 0.1
+
+    close_valve:
+      params: {}   # no params required
+
+    start_pump:
+      params:
+        duration_minutes:
+          type: integer
+          min: 1
+          max: 480
+
+    stop_pump:
+      params: {}
+
+    set_irrigation_schedule:
+      params:
+        daily_volume_litres:
+          type: number
+          min: 1
+        frequency:
+          type: enum[daily, twice_daily, every_other_day]
+        start_time:
+          type: time_string   # HH:MM 24h
+
+    log_only:
+      params:
+        message:
+          type: string
+
+    trigger_alert:
+      params:
+        severity:
+          type: enum[info, warning, critical]
+        message:
+          type: string
+
+# ---------------------------------------------------------------------------
+# Constraints on FOIS-generated rules specifically
+# The governance layer enforces these on top of schema validation.
+# ---------------------------------------------------------------------------
+fois_constraints:
+
+  # FOIS may only target zones it has been explicitly granted
+  allowed_zone_ids:
+    - zone_capsicum_a
+    - zone_capsicum_b
+    - zone_tomato_a
+    - zone_tomato_b
+
+  # FOIS may not touch these action types — operator only
+  forbidden_action_types:
+    - stop_pump       # pump control is operator-only
+    - trigger_alert   # alerting is operator-only
+
+  # FOIS rules must have an expiry — no open-ended rules from the investor
+  expiry_required: true
+
+  # Maximum single irrigation volume FOIS may request per action
+  max_single_irrigation_litres: 50000
+
+  # Maximum rule priority FOIS may claim (operator low-priority rules only)
+  max_priority: 60

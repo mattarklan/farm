@@ -1,0 +1,8 @@
+power:
+  battery_min_voltage: 11.8
+
+water:
+  max_pump_runtime_seconds: 3600
+
+safety:
+  allow_pump_if_flow_required: true

@@ -15,7 +15,7 @@ water:
     metadata:
       material: poly
       installation_year: 2018
-      gps: [-31.950331, 115.86022]
+      gps: [-31.95032, 115.86023]
 
   tank_2:
     id: tank_2
@@ -30,7 +30,7 @@ water:
     dependencies:
       - bore_1
     metadata:
-      gps: [-31.950341, 115.86021]
+      gps: [-31.950328, 115.86022]
 
   tank_3:
     id: tank_3
@@ -43,7 +43,7 @@ water:
       - tank_3_flow_in
       - tank_3_flow_out
     metadata:
-      gps: [-31.950351, 115.86021]
+      gps: [-31.950336, 115.86021]
 
   tank_4:
     id: tank_4
@@ -56,7 +56,7 @@ water:
       - tank_4_flow_in
       - tank_4_flow_out
     metadata:
-      gps: [-31.95031, 115.86025]
+      gps: [-31.950315, 115.86025]
 
   tank_5:
     id: tank_5
@@ -71,10 +71,23 @@ water:
     metadata:
       gps: [-31.950366, 115.860275]
 
+  tank_6:
+    id: tank_6
+    name: Tank 6
+    type: tank
+    capacity_l: 27000
+    elevation_m: 9
+    sensors:
+      - tank_6_level
+      - tank_6_flow_in
+      - tank_6_flow_out
+    metadata:
+      gps: [-31.950844, 115.86052]
+
   header_tank_1:
     id: header_tank_1
     name: Header Tank Zone 1
-    type: header_tank
+    type: tank
     capacity_l: 2000
     elevation_m: 6
     sensors:
@@ -85,7 +98,7 @@ water:
       - tank_1
       - tank_2
     metadata:
-      gps: [-31.950331, 115.860287]
+      gps: [-31.950331, 115.860281]
 
   bore_1:
     id: bore_1
@@ -107,31 +120,8 @@ water:
       - bore_2_pressure
     metadata:
       depth_m: 22
-      gps: [-31.950841, 115.860527]
+      gps: [-31.950841, 115.86053]
 
-  rain_harvesting:
-    id: rain_harvesting
-    name: Rain Harvesting System
-    type: rain_harvest
-    sensors:
-      - rain_flow_in
-      - rain_intensity
-    dependencies:
-      - tank_1
-      - tank_2
-    metadata:
-      roof_area_m2: 400
-      gps: [-31.950292, 115.860232]
-
-  irrigation_main:
-    id: irrigation_main
-    name: Main Irrigation Line
-    type: pipeline
-    sensors:
-      - irrigation_flow
-      - irrigation_pressure
-    metadata:
-      gps: [-31.950844, 115.860528]
 
 zones:
   zone_capsicum_a:

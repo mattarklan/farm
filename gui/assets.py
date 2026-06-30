@@ -7,7 +7,7 @@ ICON_SIZE = 64
 ICON_MAP = {
     "tank":     "icons/tank.png",
     "bore":     "icons/bore.png",
-    "tap":      "icons/tap.png",
+    "pump":     "icons/tap.png",
     "vehicle":  "icons/vehicle.png",
     "tractor":  "icons/tractor.png",
     "solar":    "icons/solar.png",
