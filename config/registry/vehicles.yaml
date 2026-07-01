@@ -5,13 +5,11 @@ tractors:
     type: tractor
     elevation_m: 12
     sensors:
-      - status
-      - fuel
-      - engine temperature
-      - battery voltage
-      - hello
-      - helulo
+      - tractor_100_status
+      - tractor_100_fuel
+      - tractor_100_engine_temperature
+      - tractor_100_battery_voltage
     metadata:
       hp: 100
-      latest service: 2018
+      latest_service: 2018
       gps: [-31.950762, 115.860088]

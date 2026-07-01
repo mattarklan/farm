@@ -107,6 +107,7 @@ water:
     sensors:
       - bore_1_flow
       - bore_1_pressure
+      - bore_1_status
     metadata:
       depth_m: 18
       gps: [-31.950304, 115.860304]
@@ -118,64 +119,9 @@ water:
     sensors:
       - bore_2_flow
       - bore_2_pressure
+      - bore_2_status
     metadata:
       depth_m: 22
       gps: [-31.950841, 115.86053]
 
 
-zones:
-  zone_capsicum_a:
-    id: zone_capsicum_a
-    name: Capsicum Zone A
-    type: growing_zone
-    crop: capsicum
-    sensors:
-      - zone_a_soil_moisture
-      - zone_a_flow_in
-    dependencies:
-      - header_tank_1
-    metadata:
-      area_m2: 500
-      gps: [-31.9515, 115.8614]
-
-  zone_capsicum_b:
-    id: zone_capsicum_b
-    name: Capsicum Zone B
-    type: growing_zone
-    crop: capsicum
-    sensors:
-      - zone_b_soil_moisture
-      - zone_b_flow_in
-    dependencies:
-      - header_tank_1
-    metadata:
-      area_m2: 500
-      gps: [-31.9516, 115.8615]
-
-  zone_tomato_a:
-    id: zone_tomato_a
-    name: Tomato Zone A
-    type: growing_zone
-    crop: tomato
-    sensors:
-      - zone_c_soil_moisture
-      - zone_c_flow_in
-    dependencies:
-      - header_tank_2
-    metadata:
-      area_m2: 400
-      gps: [-31.9517, 115.8616]
-
-  zone_tomato_b:
-    id: zone_tomato_b
-    name: Tomato Zone B
-    type: growing_zone
-    crop: tomato
-    sensors:
-      - zone_d_soil_moisture
-      - zone_d_flow_in
-    dependencies:
-      - header_tank_2
-    metadata:
-      area_m2: 400
-      gps: [-31.9518, 115.8617]

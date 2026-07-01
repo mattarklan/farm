@@ -1,28 +1,25 @@
-growing zones:
-  zone A:
-    id: zone A
+growing_zones:
+  zone_a:
+    id: zone_a
     name: Zone A
     type: crop
-    elevation_m: 12
     sensors:
-      - soil moisture
-      - last irrigated
-      - temperature
+      - zone_a_soil_moisture
+      - zone_a_last_irrigated
+      - zone_a_temperature
     metadata:
       size: 10x20
-      start year: 2025
+      start_year: 2025
       gps: [-31.950353, 115.860221]
-
-  zone B:
-    id: zone B
+  zone_b:
+    id: zone_b
     name: Zone B
     type: crop
-    elevation_m: 12
     sensors:
-      - soil moisture
-      - last irrigated
-      - temperature
+      - zone_b_soil_moisture
+      - zone_b_last_irrigated
+      - zone_b_temperature
     metadata:
       size: 10x10
-      start year: 2025
+      start_year: 2025
       gps: [-31.95039, 115.860181]

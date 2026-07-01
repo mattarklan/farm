@@ -1,2 +1,18 @@
 pip install PyQt6
 needs to have yaml as well
+
+https://mosquitto.org/download/?utm_source=chatgpt.com install it
+mosquitto -h to check if its installed, if it fails;
+Step 3: Add Mosquitto to PATH
+Press Start
+Search for Environment Variables
+Open Edit the system environment variables
+Click Environment Variables
+Under System variables, select Path
+Click Edit
+Click New
+Add:C:\Program Files (x86)\mosquitto
+
+python -m pip install paho-mqtt pyyaml
+
+// for running mosquitto test mosquitto_sub.exe -t farm/test
