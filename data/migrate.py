@@ -11,11 +11,11 @@ def ensure_version_table():
     """)
     row = fetchone("SELECT version FROM schema_version LIMIT 1")
     if row is None:
-        execute("INSERT INTO schema_version (version) VALUES (1)")
+        execute("INSERT INTO schema_version (version) VALUES (0)")
 
 def get_version():
     row = fetchone("SELECT version FROM schema_version LIMIT 1")
-    return row["version"] if row else 1
+    return row["version"] if row else 0
 
 def set_version(v: int):
     execute("UPDATE schema_version SET version = ?", (v,))

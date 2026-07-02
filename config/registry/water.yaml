@@ -91,9 +91,9 @@ water:
     capacity_l: 2000
     elevation_m: 6
     sensors:
-      - header_1_level
-      - header_1_flow_in
-      - header_1_flow_out
+      - header_tank_1_level
+      - header_tank_1_flow_in
+      - header_tank_1_flow_out
     dependencies:
       - tank_1
       - tank_2

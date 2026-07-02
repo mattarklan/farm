@@ -14,5 +14,4 @@ Click New
 Add:C:\Program Files (x86)\mosquitto
 
 python -m pip install paho-mqtt pyyaml
-
-// for running mosquitto test mosquitto_sub.exe -t farm/test
+pip install fastapi uvicorn
