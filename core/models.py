@@ -6,7 +6,6 @@ from typing import Any, Optional
 # -------------------------
 # STATE
 # -------------------------
-
 @dataclass(slots=True)
 class SensorState:
     value: float = 0.0
@@ -18,17 +17,14 @@ class SensorState:
 # -------------------------
 # EVENTS
 # -------------------------
-
 @dataclass(slots=True)
 class Event:
     id: str
     event_type: str
     asset_id: str
     sensor_id: str
-
     severity: int
     confidence: float
-
     timestamp: datetime
     data: dict
 
@@ -36,14 +32,12 @@ class Event:
 # -------------------------
 # ACTIONS
 # -------------------------
-
 @dataclass(slots=True)
 class Action:
     id: str
     action_type: str
     target: Optional[str]
     parameters: dict
-
     priority: int
     created_from_event: str
     timestamp: datetime

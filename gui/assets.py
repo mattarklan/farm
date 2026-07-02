@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6.QtGui import QPixmap, QColor
 from PyQt6.QtCore import QRectF, Qt
 
-ICON_SIZE = 64
+ICON_SIZE = 80
 
 ICON_MAP = {
     "tank":     "icons/tank.png",
@@ -10,8 +10,7 @@ ICON_MAP = {
     "pump":     "icons/tap.png",
     "vehicle":  "icons/vehicle.png",
     "tractor":  "icons/tractor.png",
-    "solar":    "icons/solar.png",
-    "battery":  "icons/battery.png",
+    "power":    "icons/power.png",
     "crop":     "icons/crop.png",
 }
 DEFAULT_ICON = "icons/default.png"

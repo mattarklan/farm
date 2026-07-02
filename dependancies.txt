@@ -15,3 +15,10 @@ Add:C:\Program Files (x86)\mosquitto
 
 python -m pip install paho-mqtt pyyaml
 pip install fastapi uvicorn
+
+python -m farm.data.ingest
+python -m farm.data.simulator
+mosquitto_sub -h localhost -t "farm/#" -v
+uvicorn farm.api.api:app --reload
+
+http://127.0.0.1:8000/docs#/default

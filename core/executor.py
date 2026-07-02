@@ -3,27 +3,21 @@ from core.models import ActionResult
 
 
 class Executor:
-
     def __init__(self):
-
         # action dispatch table
         self.handlers = {
             "LOAD_SHEDDING": self._load_shedding,
             "SUSPEND_IRRIGATION_ZONE": self._suspend_irrigation,
             "SHUT_OFF_VALVE": self._shut_off_valve,
+            "OPEN_VALVE": self._open_valve,
+            "CLOSE_VALVE": self._close_valve,
         }
 
-
     def execute(self, actions):
-
         results = []
-
         for action in actions:
-
             handler = self.handlers.get(action.action_type)
-
             if handler is None:
-
                 results.append(
                     ActionResult(
                         action_id=action.id,
@@ -32,25 +26,17 @@ class Executor:
                         timestamp=datetime.utcnow()
                     )
                 )
-
                 continue
-
             result = handler(action)
             results.append(result)
-
         return results
-
 
     # -----------------------------
     # HANDLERS (hardware boundary)
     # -----------------------------
-
     def _load_shedding(self, action):
-
-        print(f"[EXECUTOR] LOAD SHEDDING → {action.parameters}")
-
+        print(f"[EXECUTOR] LOAD SHEDDING -> {action.parameters}")
         # placeholder for inverter / relay control
-
         return ActionResult(
             action_id=action.id,
             success=True,
@@ -58,13 +44,9 @@ class Executor:
             timestamp=datetime.utcnow()
         )
 
-
     def _suspend_irrigation(self, action):
-
-        print(f"[EXECUTOR] IRRIGATION SUSPENDED → {action.target}")
-
+        print(f"[EXECUTOR] IRRIGATION SUSPENDED -> {action.target}")
         # placeholder for valve control system
-
         return ActionResult(
             action_id=action.id,
             success=True,
@@ -72,13 +54,29 @@ class Executor:
             timestamp=datetime.utcnow()
         )
 
+    def _open_valve(self, action):
+        print(f"[EXECUTOR] VALVE OPENED -> {action.target} {action.parameters}")
+        # placeholder for relay / solenoid control
+        return ActionResult(
+            action_id=action.id,
+            success=True,
+            message="Valve opened (simulated)",
+            timestamp=datetime.utcnow()
+        )
+
+    def _close_valve(self, action):
+        print(f"[EXECUTOR] VALVE CLOSED (goal) -> {action.target}")
+        # placeholder for relay / solenoid control
+        return ActionResult(
+            action_id=action.id,
+            success=True,
+            message="Valve closed (simulated)",
+            timestamp=datetime.utcnow()
+        )
 
     def _shut_off_valve(self, action):
-
-        print(f"[EXECUTOR] VALVE CLOSED → {action.target}")
-
+        print(f"[EXECUTOR] VALVE CLOSED -> {action.target}")
         # placeholder for relay / solenoid control
-
         return ActionResult(
             action_id=action.id,
             success=True,

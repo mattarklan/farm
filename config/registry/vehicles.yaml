@@ -13,3 +13,19 @@ tractors:
       hp: 100
       latest_service: 2018
       gps: [-31.950762, 115.860088]
+cars:
+  dads_ute:
+    id: ute_1
+    name: Dad's Ute
+    type: vehicle
+    elevation_m: 12
+    sensors:
+      - ute_1_status
+      - ute_1_fuel
+      - ute_1_engine_temperature
+      - ute_1_battery_voltage
+      - previous_visit
+    metadata:
+      notes: not at farm full time
+      latest_service: 2018
+      gps: [-31.950182, 115.860316]

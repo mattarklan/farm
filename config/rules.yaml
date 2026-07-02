@@ -1,9 +1,51 @@
-pump_fill:
-  rule_id: pump_fill
-  version: 2
-  data:
-    action:
-      type: pump_fill
-    constraints:
-      max_runtime: 600
-  source_proposal: '2'
+# rules.yaml
+#
+# Two kinds of rule live here, distinguished by `kind`:
+#
+#   kind: instant (default if omitted) - handled by RuleEngine. Fires
+#     once per matching event, produces an action, done. Use for things
+#     with no natural "running" state (load shedding, alerts).
+#
+#   kind: goal - handled by GoalEngine. Starts an action and keeps it
+#     running across cycles until one of its `until` conditions trips
+#     (sensor threshold, timer, or constraint bound). Use for anything
+#     that has a duration and an end condition (irrigation, pumping).
+
+rules:
+
+  - id: water_zone_b_until_moist
+    kind: goal
+    trigger:
+      event_type: S1_SOIL_MOISTURE_LOW
+      zone_id: zone_b
+    start_action:
+      type: OPEN_VALVE
+      target: zone_b
+      params:
+        flow_rate_lpm: 10
+    stop_action:
+      type: CLOSE_VALVE
+      target: zone_b
+    until:
+      - type: sensor
+        sensor: zone_b_soil_moisture
+        op: gte
+        value: 0.3
+      - type: timer
+        max_duration_minutes: 120
+      - type: constraint
+        sensor: zone_b_soil_moisture
+        min: 0.0
+        max: 1.0
+    priority: 10
+
+  - id: load_shed_on_low_battery
+    kind: instant
+    triggers:
+      - E1_BATTERY_LOW
+    conditions: []
+    actions:
+      - type: LOAD_SHEDDING
+        params:
+          reason: battery_low
+    priority: 20

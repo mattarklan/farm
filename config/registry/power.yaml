@@ -2,7 +2,7 @@ power:
   battery_1:
     id: battery_1
     name: Main Battery Bank
-    type: battery
+    type: power
     sensors:
       - battery_1_voltage
       - battery_1_soc
@@ -12,4 +12,4 @@ power:
       capacity_ah: 400
       chemistry: LiFePO4
       installation_year: 2022
-      gps: [-31.950762, 115.860088]
+      gps: [-31.950300, 115.860232]
