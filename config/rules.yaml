@@ -1,51 +1,125 @@
 # rules.yaml
 #
-# Two kinds of rule live here, distinguished by `kind`:
+# A rule becomes a "goal" (persists across cycles, has a stop condition)
+# in any of three ways -- see goal_engine.infer_is_goal():
 #
-#   kind: instant (default if omitted) - handled by RuleEngine. Fires
-#     once per matching event, produces an action, done. Use for things
-#     with no natural "running" state (load shedding, alerts).
+#   1. Explicit `until` list.
+#   2. No `until`, but the action has a `duration_minutes` param --
+#      auto-derived into a single, primary, timer-only stop. This is
+#      what lets governance's schema (no "until" concept at all) drive
+#      goals without changing that schema.
+#   3. `trigger: {type: schedule, start_time, end_time}` instead of an
+#      event trigger -- runs on wall-clock time, repeats daily.
 #
-#   kind: goal - handled by GoalEngine. Starts an action and keeps it
-#     running across cycles until one of its `until` conditions trips
-#     (sensor threshold, timer, or constraint bound). Use for anything
-#     that has a duration and an end condition (irrigation, pumping).
+# Anything else is an instant, one-shot rule (RuleEngine).
+#
+# STOP CONDITIONS: mark one `until` entry `primary: true`. Stopping via
+# the primary condition is normal. Stopping via any OTHER condition
+# first means the primary one was never satisfied -- flagged
+# automatically (severity bumped, data.expected=false on GOAL_STOPPED).
+#
+# Templates: "$event" -> the triggering zone/sensor. "$asset.<field>"
+# -> that field from the target's registry metadata (e.g. crops.yaml).
 
 rules:
 
-  - id: water_zone_b_until_moist
-    kind: goal
+  - id: water_growing_zone_until_moist
     trigger:
-      event_type: S1_SOIL_MOISTURE_LOW
-      zone_id: zone_b
+      event_type: S1_SOIL_MOISTURE_LOW   # no zone_id -> applies to every zone
     start_action:
       type: OPEN_VALVE
-      target: zone_b
+      target: "$event"
+      severity: 2
       params:
         flow_rate_lpm: 10
     stop_action:
       type: CLOSE_VALVE
-      target: zone_b
+      target: "$event"
+      severity: 3
     until:
-      - type: sensor
-        sensor: zone_b_soil_moisture
+      - type: sensor            # PRIMARY: moisture actually reached target
+        sensor: "$event"
         op: gte
-        value: 0.3
-      - type: timer
+        value: "$asset.target_soil_moisture"
+        primary: true
+      - type: timer              # fallback: shouldn't take this long -- flag it if it does
         max_duration_minutes: 120
-      - type: constraint
-        sensor: zone_b_soil_moisture
+      - type: constraint          # fallback: safety net
+        sensor: "$event"
         min: 0.0
         max: 1.0
-    priority: 10
+
+  # Once-a-week override for a specific zone -- same shape, scoped by zone_id + min_interval_days
+  - id: water_zone_tomato_a_weekly
+    trigger:
+      event_type: S1_SOIL_MOISTURE_LOW
+      zone_id: zone_tomato_a
+    start_action:
+      type: OPEN_VALVE
+      target: zone_tomato_a
+      severity: 2
+      params:
+        flow_rate_lpm: 8
+    stop_action:
+      type: CLOSE_VALVE
+      target: zone_tomato_a
+      severity: 3
+    until:
+      - type: sensor
+        sensor: "$event"
+        op: gte
+        value: "$asset.target_soil_moisture"
+        primary: true
+      - type: timer
+        max_duration_minutes: 90
+    min_interval_days: 7
+
+  # Grow lights, dusk to dawn, repeats daily. Reaching end_time is the
+  # NORMAL way this stops -- not a fallback, so no false alarm every
+  # single morning.
+  - id: grow_lights_zone_a
+    trigger:
+      type: schedule
+      start_time: "18:00"
+      end_time: "06:00"
+    start_action:
+      type: OPEN_VALVE            # stand-in action type until a real LIGHT_ON exists in executor.py
+      target: light_zone_a
+      severity: 4
+      params: {}
+    stop_action:
+      type: CLOSE_VALVE
+      target: light_zone_a
+      severity: 4
+    until:
+      - type: schedule_end
+        primary: true
+
+  # Example FOIS-style proposal: governance's existing schema shape
+  # (no "until", no "kind") -- auto-derived into a 20-minute timer goal.
+  - id: fois_proposal_extra_water_zone_capsicum_a
+    source: fois
+    proposal_id: prop_0042
+    enabled: true
+    expires_at: "2026-08-01T00:00:00"
+    trigger:
+      event_type: MANUAL_WATER_REQUEST
+      zone_id: zone_capsicum_a
+    actions:
+      - type: open_valve
+        target: zone_capsicum_a
+        severity: 2
+        params:
+          duration_minutes: 20
+          flow_rate_lpm: 5
 
   - id: load_shed_on_low_battery
-    kind: instant
     triggers:
       - E1_BATTERY_LOW
     conditions: []
     actions:
       - type: LOAD_SHEDDING
+        severity: 1
         params:
           reason: battery_low
     priority: 20

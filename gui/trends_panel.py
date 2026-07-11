@@ -1,6 +1,6 @@
+#trends_panel.py
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PyQt6.QtCore import Qt
-
 
 TREND_METRICS = [
     ("Rain",        "mm"),

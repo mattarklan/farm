@@ -1,84 +1,46 @@
 """
-In-memory + file logger for farm decision cycles.
+Logs operational PROBLEMS only -- not routine decision-cycle output
+(that's gui_export.py's job, into config/events.json / actions.json).
+This should stay quiet on a normal day and only write when core itself
+is misbehaving:
 
-Two fixes from the pasted version:
-  1. Imported `core.events.Event` / `core.rules.Action` — those modules
-     are the binned legacy system. Switched to `core.models`, which is
-     what event_engine.py / rule_engine.py actually produce.
-  2. Used `asdict(state)`, which only works on dataclass instances.
-     `state` is a plain dict everywhere else in this codebase
-     (state_builder.py, pipeline.py, event_engine.py all treat it as
-     one), so asdict() would've raised a TypeError the first time this
-     ran for real. Serializes the dict directly instead.
+  - couldn't reach the ingestion API
+  - startup / shutdown issues (crashed, didn't shut down cleanly)
+  - an unhandled exception inside a decision cycle
+  - corrupt/unreadable data
+  - anything else where core isn't doing its job correctly
+
+Plain text, one line per problem, append-only -- deliberately not JSON;
+this is meant to be tailed/grepped by a human during an incident, not
+parsed by a GUI.
 """
 from __future__ import annotations
 
-import json
-from datetime import datetime
-from typing import List
-
-from core.models import Event, Action, SensorState
-
-
-def json_serializable(obj):
-    """Recursively convert non-JSON-serializable types."""
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, SensorState):
-        return {
-            "value": obj.value,
-            "quality": obj.quality,
-            "timestamp": obj.timestamp.isoformat() if obj.timestamp else None,
-            "source": obj.source,
-        }
-    if isinstance(obj, dict):
-        return {k: json_serializable(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [json_serializable(i) for i in obj]
-    return obj
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 class Logger:
-    """
-    In-memory + file logger for farm decision cycles.
-    Captures full system state transitions.
-    """
+    def __init__(self, path: str = "logs/system.log"):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    def __init__(self):
-        self.history: List[dict] = []
+    def startup(self):
+        self._write("STARTUP", "core started")
 
-    def log(self, state: dict, events: List[Event], actions: List[Action]):
-        entry = {
-            "timestamp": state["timestamp"].isoformat(),
-            "state_snapshot": json_serializable(state),
-            "events": [self._event_to_dict(e) for e in events],
-            "actions": [self._action_to_dict(a) for a in actions],
-        }
-        self.history.append(entry)
+    def shutdown(self, clean: bool = True):
+        self._write("SHUTDOWN", "core stopped cleanly" if clean else "core stopped UNCLEANLY")
 
-    def save(self, path: str = "farm_log.json"):
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.history, f, indent=2)
+    def api_unreachable(self, detail: str):
+        self._write("API_UNREACHABLE", detail)
 
-    def _event_to_dict(self, event: Event) -> dict:
-        return {
-            "id": event.id,
-            "event_type": event.event_type,
-            "asset_id": event.asset_id,
-            "sensor_id": event.sensor_id,
-            "severity": event.severity,
-            "confidence": event.confidence,
-            "timestamp": event.timestamp.isoformat(),
-            "data": json_serializable(event.data),
-        }
+    def cycle_error(self, exc: Exception):
+        self._write("CYCLE_ERROR", f"{type(exc).__name__}: {exc}")
 
-    def _action_to_dict(self, action: Action) -> dict:
-        return {
-            "id": action.id,
-            "action_type": action.action_type,
-            "target": action.target,
-            "parameters": json_serializable(action.parameters),
-            "priority": action.priority,
-            "created_from_event": action.created_from_event,
-            "timestamp": action.timestamp.isoformat(),
-        }
+    def data_error(self, detail: str):
+        self._write("DATA_ERROR", detail)
+
+    def _write(self, kind: str, message: str):
+        ts = datetime.now(timezone.utc).isoformat()
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(f"{ts} [{kind}] {message}\n")

@@ -1,106 +1,329 @@
-#some notes for updates.
-#the icons look pretty grainy.
-#theres a concentration of assets around the shed and farm house, a nicer way of viewing these assets so they are easier to select without zooming in would be ideal, perhaps a magnification zone when hovering over an asset? not sure how to solve this issue.
-#the cursor is currently a hand which makes selecting assets clunky, change to pointer
-#the screen refreshes every minute which is to update the location of vehicles that may be moving. this resets the zoom and deselects any asset that was selected which is not ideal.
-#the growing zone asset should also display how many hours ago it was watered, 0 if less than an hour ago.
-#vehicles such as ute_1 are not permanently at the farm and will appear at the farm then disappear for up to a month at a time. so it should have a "last seen" which is the last visit it was seen before the current visit. if this time is less than 4 hours then it doesnt count.
-#every asset should have a last check-in in hours, if less than an hour it should say <1h which refers to the latest update from that asset, whichever sensor is the latest
-#youll have to calc yourself the info for the trends panel, adding rain and human presence days etc over the days. the stuff for the trends panel can all be got from the api to db anyway. the wind trend im not sure if this should be an average or peak or what, but its useful for tracking potential crop damage causes. this info can be put in a yaml so you dont have to calc it every time or if it does have to calc it every time i dont know if thats really slow or if its fine.
-#id also like a running list of the latest 20 events with time stamps. and the latest 20 actions like irrigated zone B, pumped water from bore_2 to tank_6, there will be a yaml for both events and actions, or it might be a json
 import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow
+
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QToolBar,
+)
+
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
-from registry_loader import load_assets
-from app_state import AppState
-from scene import build_scene
-from view import FarmView
-from status_panel import StatusPanel
-from trends_panel import TrendsPanel
+
+from .app_state import AppState
+from .scene import build_scene
+from .scada_scene import SCADAScene
+from .view import FarmView
+from .status_panel import StatusPanel
+from .trends_panel import TrendsPanel
+from .asset_adapter import registry_to_assets
+
+from farm.config.loader import load_registry
+from farm.core.api_client import IngestionAPIClient
+
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, assets):
+
+    def __init__(
+        self,
+        assets
+    ):
+
         super().__init__()
-        self.setWindowTitle("Farm UI")
+
+        self.setWindowTitle(
+            "Farm UI"
+        )
+
+
+        # ----------------------------------------------------
+        # Shared application state
+        # ----------------------------------------------------
 
         self.state = AppState()
-        self.view = FarmView(build_scene(assets, self.state))
-        self.setCentralWidget(self.view)
 
-        self.status_panel = StatusPanel(self, self.state)
-        self.trends_panel = TrendsPanel(self, self.state)
 
-        self.view.set_mouse_callback(self.status_panel.update_gps)
-        self.state.on_selected_change(self.status_panel.update_asset)
-        self.state.on_system_change(self.status_panel.update_system)
+        # ----------------------------------------------------
+        # Build scenes once
+        # ----------------------------------------------------
 
-        f5 = QShortcut(QKeySequence("F5"), self)
-        f5.activated.connect(self._rebuild_scene)
+        self.map_scene = build_scene(
+            assets,
+            self.state,
+        )
 
-        self._vehicle_timer = QTimer(self)
-        self._vehicle_timer.setInterval(60_000)
-        self._vehicle_timer.timeout.connect(self._rebuild_scene)
-        self._vehicle_timer.start()
+        self.scada_scene = SCADAScene(
+            self.state
+        )
 
-        QTimer.singleShot(0, self._post_init)
 
-    def _post_init(self):
-        self._resize_panels()
+        self.view = FarmView(
+            self.map_scene
+        )
+
+        self.setCentralWidget(
+            self.view
+        )
+
+
+        # ----------------------------------------------------
+        # API
+        # ----------------------------------------------------
+
+        self.api = IngestionAPIClient(
+            "http://127.0.0.1:8000"
+        )
+
+
+        # ----------------------------------------------------
+        # Panels
+        # ----------------------------------------------------
+
+        self.status_panel = StatusPanel(
+            self,
+            self.state
+        )
+
+        self.trends_panel = TrendsPanel(
+            self,
+            self.state
+        )
+
+
+        self.state.on_selected_change(
+            self.status_panel.update_asset
+        )
+
+        self.state.on_system_change(
+            self.status_panel.update_system
+        )
+
+
+        # ----------------------------------------------------
+        # Toolbar
+        # ----------------------------------------------------
+
+        toolbar = QToolBar(
+            "Views"
+        )
+
+        self.addToolBar(
+            toolbar
+        )
+
+
+        map_action = QAction(
+            "Map",
+            self
+        )
+
+        process_action = QAction(
+            "Process",
+            self
+        )
+
+
+        map_action.triggered.connect(
+            self.show_map
+        )
+
+        process_action.triggered.connect(
+            self.show_scada
+        )
+
+
+        toolbar.addAction(
+            map_action
+        )
+
+        toolbar.addAction(
+            process_action
+        )
+
+
+        # ----------------------------------------------------
+        # Telemetry refresh
+        # ----------------------------------------------------
+
+        self._telemetry_timer = QTimer(
+            self
+        )
+
+        self._telemetry_timer.setInterval(
+            10_000
+        )
+
+        self._telemetry_timer.timeout.connect(
+            self.refresh_telemetry
+        )
+
+        self._telemetry_timer.start()
+
+
+        # Initial data load
+        QTimer.singleShot(
+            0,
+            self.refresh_telemetry
+        )
+
+
+        QTimer.singleShot(
+            0,
+            self._post_init
+        )
+
+
+
+    # --------------------------------------------------------
+    # Views
+    # --------------------------------------------------------
+
+    def show_map(self):
+
+        self.view.set_scene(
+            self.map_scene
+        )
+
         self.view.align_left()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+
+
+    def show_scada(self):
+
+        self.view.set_scene(
+            self.scada_scene
+        )
+
+        self.view.center_scene()
+
+
+
+    # --------------------------------------------------------
+    # API telemetry
+    # --------------------------------------------------------
+
+    def refresh_telemetry(self):
+
+        try:
+
+            response = self.api.get_latest_state()
+
+
+        except Exception as e:
+
+            print(
+                "Telemetry update failed:",
+                e
+            )
+
+            return
+
+
+
+        for asset in response.get(
+            "assets",
+            []
+        ):
+
+            self.state.update_asset_sensors(
+                asset["asset_id"],
+                asset.get(
+                    "metrics",
+                    {}
+                ),
+                asset.get(
+                    "ts"
+                ),
+            )
+
+
+
+    # --------------------------------------------------------
+    # Layout
+    # --------------------------------------------------------
+
+    def _post_init(self):
+
         self._resize_panels()
+
+        self.view.align_left()
+
+
+
+    def resizeEvent(
+        self,
+        event
+    ):
+
+        super().resizeEvent(
+            event
+        )
+
+        self._resize_panels()
+
+
+
     def _resize_panels(self):
+
         w = self.width()
         h = self.height()
 
-        status_w = int(w * 0.22)
-        trends_w = int(w * 0.29)
 
-        status_h = 380    # asset(6 lines) + system(4) + gps + dividers
-        trends_h = 300    # 8 metrics + header + dividers + 1 line spare
+        status_w = int(
+            w * 0.22
+        )
+
+        trends_w = int(
+            w * 0.29
+        )
+
 
         self.trends_panel.setGeometry(
             w - status_w - trends_w,
-            h - trends_h,
+            h - 300,
             trends_w,
-            trends_h,
+            300,
         )
+
 
         self.status_panel.setGeometry(
             w - status_w,
-            h - status_h,
+            h - 380,
             status_w,
-            status_h,
+            380,
         )
 
-    def _rebuild_scene(self):
-        zoom_index = self.view._zoom_index
-        self.state.clear_selection()
-        assets = load_assets()
-        old_scene = self.view.scene()
-        new_scene = build_scene(assets, self.state)
-        self.view.setScene(new_scene)
-        old_scene.deleteLater()
-        self.view._zoom_index = zoom_index
-        self.view.resetTransform()
-        self.view.scale(
-            self.view.ZOOM_STEPS[zoom_index],
-            self.view.ZOOM_STEPS[zoom_index],
-        )
-        self.view.align_left()
+
+
 
 
 def main():
-    app = QApplication(sys.argv)
-    assets = load_assets()
-    window = MainWindow(assets)
+
+    app = QApplication(
+        sys.argv
+    )
+
+
+    registry = load_registry()
+
+    assets = registry_to_assets(
+        registry
+    )
+
+
+    window = MainWindow(
+        assets
+    )
+
     window.showMaximized()
-    sys.exit(app.exec())
+
+
+    sys.exit(
+        app.exec()
+    )
+
 
 
 if __name__ == "__main__":
+
     main()

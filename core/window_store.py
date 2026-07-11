@@ -1,6 +1,6 @@
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Deque, Tuple
 
 
@@ -45,7 +45,19 @@ class RollingWindowStore:
 
     def _prune_old(self, sensor_id: str):
         window = self.windows[sensor_id]
-        now = datetime.utcnow()
+        # datetime.utcnow() is naive but represents UTC wall-clock time.
+        # Calling .timestamp() on a naive datetime makes Python assume
+        # it's in the SYSTEM's local timezone and convert accordingly --
+        # on a Perth (AWST, UTC+8) box that shifts the computed "now"
+        # ~8h behind the real epoch, which pushes cutoff ~8h further
+        # into the past than intended. In practice that means the
+        # age-based prune (max_age_seconds, default 1h) almost never
+        # actually fires -- only the size cap (max_size) still works,
+        # so history sticks around far longer than the configured
+        # retention. Using an explicit timezone-aware UTC datetime
+        # makes .timestamp() correct regardless of the system's local
+        # timezone.
+        now = datetime.now(timezone.utc)
         cutoff = now.timestamp() - self.config.max_age_seconds
         while window and window[0][0].timestamp() < cutoff:
             window.popleft()

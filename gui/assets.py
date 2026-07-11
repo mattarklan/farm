@@ -1,19 +1,29 @@
+#assets.py
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6.QtGui import QPixmap, QColor
 from PyQt6.QtCore import QRectF, Qt
 
 ICON_SIZE = 80
 
+import os
+
+BASE_DIR = os.path.dirname(__file__)
+
 ICON_MAP = {
-    "tank":     "icons/tank.png",
-    "bore":     "icons/bore.png",
-    "pump":     "icons/tap.png",
-    "vehicle":  "icons/vehicle.png",
-    "tractor":  "icons/tractor.png",
-    "power":    "icons/power.png",
-    "crop":     "icons/crop.png",
+    "tank": os.path.join(BASE_DIR, "icons", "tank.png"),
+    "bore": os.path.join(BASE_DIR, "icons", "bore.png"),
+    "pump": os.path.join(BASE_DIR, "icons", "tap.png"),
+    "vehicle": os.path.join(BASE_DIR, "icons", "vehicle.png"),
+    "tractor": os.path.join(BASE_DIR, "icons", "tractor.png"),
+    "power": os.path.join(BASE_DIR, "icons", "power.png"),
+    "crop": os.path.join(BASE_DIR, "icons", "crop.png"),
 }
-DEFAULT_ICON = "icons/default.png"
+
+DEFAULT_ICON = os.path.join(
+    BASE_DIR,
+    "icons",
+    "default.png"
+)
 
 
 def load_icon(path):

@@ -1,0 +1,22 @@
+weather:
+  weather_1:
+    id: weather_1
+    name: Weather Station
+    type: weather
+    sensors:
+      - weather_1_rain
+      - weather_1_wind
+      - weather_1_temperature
+      - weather_1_humidity
+    metadata:
+      gps: [-31.950300, 115.860200]
+
+gates:
+  gate_1:
+    id: gate_1
+    name: Front Gate
+    type: gate
+    sensors:
+      - gate_1_open
+    metadata:
+      gps: [-31.950252, 115.860320]

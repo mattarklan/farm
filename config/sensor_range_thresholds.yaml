@@ -1,0 +1,24 @@
+# sensor_range_thresholds.yaml
+# Physically-possible min/max per metric -- touching or exceeding
+# either end means the SENSOR is broken/disconnected, not that the
+# real-world value is actually there. This is deliberately wider than
+# any safety constraint (e.g. battery 11.6-14.4V is a constraints.yaml
+# concern about battery health, not sensor health -- 0V or 20V here is
+# "the sensor can't possibly be reading correctly").
+#
+# Metric not listed = no range check applied (skipped, not assumed
+# fine) -- only add entries you're confident about; a wrong bound
+# causes false alarms.
+
+ranges:
+  soil_moisture:       {min: 0,   max: 100}
+  soc:                  {min: 0,   max: 100}
+  fuel:                  {min: 0,   max: 100}
+  battery_voltage:         {min: 0,   max: 20}   # sensor-fault rail, not the 11.6-14.4V health constraint
+  voltage:                   {min: 0,   max: 20}
+  engine_temperature:          {min: -10, max: 150}
+
+  # deliberately NOT listed yet -- flow_in/flow_out/level/pressure/current
+  # all need real-world max bounds I don't want to guess (e.g. is a
+  # negative flow ever legitimate reverse-flow, or always a fault?).
+  # Add these once you know each sensor's actual physical limits.

@@ -1,19 +1,35 @@
 from dataclasses import dataclass, field
-from typing import Optional, Callable, Any, Dict
+from typing import Optional, Callable, Any, Dict, List
 
 
 @dataclass
 class AssetState:
+
     asset_id: str
     name: str
     type: str
+
     gps: Optional[tuple] = None
-    sensors: Dict[str, Any] = field(default_factory=dict)
+
+    sensors: Dict[str, Any] = field(
+        default_factory=dict
+    )
+
+    dependencies: List[str] = field(
+        default_factory=list
+    )
+
+    last_update: Optional[int] = None
+
 
 
 class AppState:
+
     def __init__(self):
-        self._selected_asset: Optional[AssetState] = None
+
+        self._selected_asset = None
+
+
         self.system = {
             "battery_soc": 0,
             "battery_voltage": 0,
@@ -24,58 +40,183 @@ class AppState:
             "rain_30d": 0,
             "wind": 0,
         }
-        self._on_selected_change: list[Callable] = []
-        self._on_system_change: list[Callable] = []
-        self._on_refresh: list[Callable] = []
 
-        # asset_id → AssetState, populated by scene at build time
-        self._asset_registry: Dict[str, AssetState] = {}
 
-    # ── asset registry ───────────────────────────────────────────
+        self._asset_registry = {}
 
-    def register_asset(self, asset_state: AssetState):
-        self._asset_registry[asset_state.asset_id] = asset_state
 
-    def update_asset_sensors(self, asset_id: str, sensors: Dict[str, Any]):
-        if asset_id in self._asset_registry:
-            self._asset_registry[asset_id].sensors.update(sensors)
+        self._on_selected_change = []
 
-    def update_asset_gps(self, asset_id: str, gps: tuple):
-        if asset_id in self._asset_registry:
-            self._asset_registry[asset_id].gps = gps
+        self._on_system_change = []
 
-    # ── selected asset ───────────────────────────────────────────
+        self._on_asset_change = []
+
+
+
+    # --------------------------------------------------------
+    # Registry
+    # --------------------------------------------------------
+
+    def register_asset(
+        self,
+        asset
+    ):
+
+        self._asset_registry[
+            asset.asset_id
+        ] = asset
+
+
+
+    def get_all_assets(
+        self
+    ):
+
+        return list(
+            self._asset_registry.values()
+        )
+
+
+
+    def get_asset(
+        self,
+        asset_id
+    ):
+
+        return self._asset_registry.get(
+            asset_id
+        )
+
+
+
+    # --------------------------------------------------------
+    # Sensor updates
+    # --------------------------------------------------------
+
+    def update_asset_sensors(
+        self,
+        asset_id,
+        sensors,
+        ts=None
+    ):
+
+        asset = self._asset_registry.get(
+            asset_id
+        )
+
+
+        if not asset:
+            return
+
+
+        asset.sensors.update(
+            sensors
+        )
+
+
+        asset.last_update = ts
+
+
+        for cb in self._on_asset_change:
+
+            cb(
+                asset
+            )
+
+
+
+    # --------------------------------------------------------
+    # Selection
+    # --------------------------------------------------------
 
     @property
-    def selected_asset(self) -> Optional[AssetState]:
+    def selected_asset(
+        self
+    ):
+
         return self._selected_asset
 
-    def set_selected_asset(self, asset: Optional[AssetState]):
+
+
+    def set_selected_asset(
+        self,
+        asset
+    ):
+
         self._selected_asset = asset
+
+
         for cb in self._on_selected_change:
-            cb(asset)
 
-    def on_selected_change(self, callback: Callable):
-        self._on_selected_change.append(callback)
+            cb(
+                asset
+            )
 
-    def clear_selection(self):
-        self.set_selected_asset(None)
 
-    # ── system telemetry ─────────────────────────────────────────
 
-    def update_system(self, **kwargs):
-        self.system.update(kwargs)
+    def clear_selection(
+        self
+    ):
+
+        self.set_selected_asset(
+            None
+        )
+
+
+
+    def on_selected_change(
+        self,
+        callback
+    ):
+
+        self._on_selected_change.append(
+            callback
+        )
+
+
+
+    # --------------------------------------------------------
+    # Asset callbacks
+    # --------------------------------------------------------
+
+    def on_asset_change(
+        self,
+        callback
+    ):
+
+        self._on_asset_change.append(
+            callback
+        )
+
+
+
+    # --------------------------------------------------------
+    # System telemetry
+    # --------------------------------------------------------
+
+    def update_system(
+        self,
+        **kwargs
+    ):
+
+        self.system.update(
+            kwargs
+        )
+
+
         for cb in self._on_system_change:
-            cb(self.system)
 
-    def on_system_change(self, callback: Callable):
-        self._on_system_change.append(callback)
+            cb(
+                self.system
+            )
 
-    # ── refresh ──────────────────────────────────────────────────
 
-    def on_refresh(self, callback: Callable):
-        self._on_refresh.append(callback)
 
-    def trigger_refresh(self):
-        for cb in self._on_refresh:
-            cb()
+    def on_system_change(
+        self,
+        callback
+    ):
+
+        self._on_system_change.append(
+            callback
+        )

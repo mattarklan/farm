@@ -1,0 +1,14 @@
+2026-07-06T15:54:07.782644+00:00 [STARTUP] core started
+2026-07-06T15:54:09.968023+00:00 [API_UNREACHABLE] GET /state/latest failed: 500 Server Error: Internal Server Error for url: http://localhost:8000/state/latest
+2026-07-06T15:54:22.000304+00:00 [API_UNREACHABLE] GET /state/latest failed: 500 Server Error: Internal Server Error for url: http://localhost:8000/state/latest
+2026-07-06T15:54:34.039764+00:00 [API_UNREACHABLE] GET /state/latest failed: 500 Server Error: Internal Server Error for url: http://localhost:8000/state/latest
+2026-07-06T15:54:46.093319+00:00 [API_UNREACHABLE] GET /state/latest failed: 500 Server Error: Internal Server Error for url: http://localhost:8000/state/latest
+2026-07-06T16:00:22.779805+00:00 [STARTUP] core started
+2026-07-07T11:59:18.397862+00:00 [STARTUP] core started
+2026-07-07T12:00:37.464762+00:00 [SHUTDOWN] core stopped cleanly
+2026-07-07T12:00:49.959813+00:00 [STARTUP] core started
+2026-07-07T12:02:01.755885+00:00 [SHUTDOWN] core stopped cleanly
+2026-07-07T12:11:15.742700+00:00 [STARTUP] core started
+2026-07-07T12:12:03.273964+00:00 [SHUTDOWN] core stopped cleanly
+2026-07-07T13:40:20.377009+00:00 [STARTUP] core started
+2026-07-07T13:43:26.776776+00:00 [SHUTDOWN] core stopped cleanly

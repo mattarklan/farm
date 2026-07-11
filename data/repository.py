@@ -101,3 +101,24 @@ def get_daily_summary(asset_id, since_ts=0):
 
 def purge_raw_before(cutoff_ts):
     execute("DELETE FROM raw_telemetry WHERE ts < ?", (cutoff_ts,))
+
+# ----------------------------
+# DERIVED STATE (written by core — vehicle_status, vehicle_hours,
+# last_visit, etc. Kept separate from raw_telemetry since these aren't
+# sensor readings and aren't guaranteed numeric.)
+# ----------------------------
+def upsert_derived_state(asset_id, metric, value, ts, computed_by="core"):
+    execute("""
+        INSERT INTO derived_state (asset_id, metric, value, ts, computed_by)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(asset_id, metric) DO UPDATE SET
+            value=excluded.value,
+            ts=excluded.ts,
+            computed_by=excluded.computed_by
+    """, (asset_id, metric, value, ts, computed_by))
+
+def get_derived_state_asset(asset_id):
+    return fetchall("SELECT * FROM derived_state WHERE asset_id = ?", (asset_id,))
+
+def get_derived_state_all():
+    return fetchall("SELECT * FROM derived_state")

@@ -1,0 +1,55 @@
+# event_rules.yaml
+# Threshold rules for EventEngine: sensor reading -> Event.
+#
+# *** SCALE NOT YET CONFIRMED -- see chat. ***
+# These assume the API sends already-converted engineering units
+# (percent, volts, amps), matching the one real /state/latest sample
+# seen so far (soil_moisture ~47-60, battery soc ~46%, voltage ~12.5V,
+# current -2.96A). That sample included a NEGATIVE current reading,
+# which doesn't fit a strict 1-1000 positive-int wire protocol as
+# literally described -- so treat every number below as provisional
+# until that's confirmed. If sensors actually arrive as raw 1-1000
+# codes instead, this whole file needs re-deriving against that scale.
+#
+# Shape expected by core/event_engine.py:
+#   asset_type    -- must match an asset "type" in the registry (tank, battery, crop, ...)
+#   sensor_suffix -- matched against the end of the sensor_id (e.g. "_level")
+#   condition     -- {op: lt|lte|gt|gte|eq, value: <number>}
+#   severity      -- 1=CRITICAL 2=URGENT 3=REVIEW 4=INFO
+
+rules:
+
+  - id: W1
+    event_id: W1_TANK_LEVEL_LOW
+    asset_type: tank
+    sensor_suffix: _level
+    condition: {op: lt, value: 20}
+    severity: 2
+
+  - id: E1
+    event_id: E1_BATTERY_LOW
+    asset_type: battery
+    sensor_suffix: _soc
+    condition: {op: lt, value: 20}
+    severity: 1
+
+  - id: E2
+    event_id: E2_BATTERY_OVERVOLTAGE
+    asset_type: battery
+    sensor_suffix: _voltage
+    condition: {op: gt, value: 14.4}
+    severity: 2   # flagged for awareness -- the BMS handles the actual protection, not core
+
+  - id: S1
+    event_id: S1_SOIL_MOISTURE_LOW
+    asset_type: crop
+    sensor_suffix: _soil_moisture
+    condition: {op: lt, value: 0.3}
+    severity: 3
+
+  # bore_1/bore_2 "status" and tractor "status" look like bool-as-int
+  # (0/1) in the real sample, not part of the 1-1000 ranged scale --
+  # flagged here rather than guessed at further. A "bore running but
+  # zero flow" type check needs BOTH status and flow together, which
+  # event_engine.py can't express yet (single-sensor threshold only) --
+  # that's the anomaly-detection work item, not a simple addition here.

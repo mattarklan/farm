@@ -5,8 +5,13 @@ growing_zones:
     type: crop
     sensors:
       - zone_a_soil_moisture
-      - zone_a_last_irrigated
-      - zone_a_temperature
+      - zone_a_soil_temperature
+    dependencies:
+      - tank_1
+      - tank_2
+      - battery_1
+    downstream:
+      - plants
     metadata:
       size: 10x20
       start_year: 2025
@@ -17,8 +22,13 @@ growing_zones:
     type: crop
     sensors:
       - zone_b_soil_moisture
-      - zone_b_last_irrigated
-      - zone_b_temperature
+      - zone_b_soil_temperature
+    dependencies:
+      - tank_1
+      - tank_2
+      - battery_1
+    downstream:
+      - plants
     metadata:
       size: 10x10
       start_year: 2025

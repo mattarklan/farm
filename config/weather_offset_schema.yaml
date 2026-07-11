@@ -1,0 +1,47 @@
+# weather_offset_schema.yaml - Placeholder / locked schema for the
+# future weather-forecast-vs-actual offset module. Nothing produces this
+# data yet; the schema is locked now so core can build against it
+# (see api_client.get_weather_offsets, currently a stub) without another
+# rework once the real module exists.
+#
+# One row = one metric, one zone (or farm-wide), one period, comparing
+# what was forecast against what was actually measured.
+
+schema_version: "1.0"
+
+offset_record:
+  required:
+    - metric           # e.g. temperature_c, humidity_pct, rainfall_mm
+    - zone_id           # string, or null for farm-wide
+    - period              # "daily" | "hourly"
+    - period_start          # ISO8601 datetime, start of the covered period
+    - forecast_value          # numeric
+    - actual_value              # numeric
+    - offset                     # numeric, actual_value - forecast_value
+  optional:
+    - confidence                  # 0-1, trust in this specific offset row
+    - source_forecast_provider     # string, e.g. "bom" -- informational only
+
+  field_types:
+    metric: string
+    zone_id: string_or_null
+    period: enum[daily, hourly]
+    period_start: datetime
+    forecast_value: number
+    actual_value: number
+    offset: number
+    confidence: number_or_null
+    source_forecast_provider: string_or_null
+
+# Example row:
+# {
+#   "metric": "temperature_c",
+#   "zone_id": "zone_tomato_a",
+#   "period": "daily",
+#   "period_start": "2026-07-03T00:00:00+08:00",
+#   "forecast_value": 22.0,
+#   "actual_value": 24.6,
+#   "offset": 2.6,
+#   "confidence": 0.9,
+#   "source_forecast_provider": "bom"
+# }

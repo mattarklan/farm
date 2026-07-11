@@ -1,0 +1,83 @@
+# event_catalog.yaml
+# Reference list of event_types core can produce -- for the GUI and for
+# anyone writing new rules. Not read/enforced by any engine; rule
+# authors set severity per-action themselves (rules.yaml/event_rules.yaml).
+# This is just "what am I looking at."
+#
+# Severity scale: 1=CRITICAL 2=URGENT 3=REVIEW 4=INFO
+
+events:
+  - event_type: W1_TANK_LEVEL_LOW
+    category: threshold
+    default_severity: 2
+    description: Tank level below its configured minimum.
+
+  - event_type: E1_BATTERY_LOW
+    category: threshold
+    default_severity: 1
+    description: Battery state of charge below its configured minimum.
+
+  - event_type: S1_SOIL_MOISTURE_LOW
+    category: threshold
+    default_severity: 3
+    description: Soil moisture below a zone's watering trigger point.
+
+  - event_type: GOAL_STOPPED
+    category: goal_lifecycle
+    default_severity: 3
+    description: >
+      A running goal (e.g. irrigation) ended. See data.reason:
+      goal_condition_met / timer_expired / constraint_violation.
+
+  - event_type: ACTION_BLOCKED
+    category: safety
+    default_severity: 2
+    description: A proposed action was blocked by a constraint. Severity comes from the action's own configured severity.
+
+  - event_type: ACTION_EXECUTION_FAILED
+    category: system
+    default_severity: 1
+    description: Executor could not carry out an allowed action.
+
+  - event_type: SENSOR_CONFIDENCE_ZERO
+    category: sensor_health
+    default_severity: 1
+    description: Ingestor reported a sensor's confidence as 0 (no legitimate signal).
+
+  - event_type: SENSOR_VALUE_STUCK
+    category: sensor_health
+    default_severity: 3
+    description: Sensor reported the exact same value for many cycles running (heuristic, can false-positive on genuinely stable readings).
+
+  - event_type: SENSOR_STALE
+    category: sensor_health
+    default_severity: 2
+    description: Sensor hasn't reported a fresh reading within its configured max age (config/staleness_thresholds.yaml).
+
+  - event_type: SENSOR_OUT_OF_RANGE
+    category: sensor_health
+    default_severity: 1
+    description: Sensor reading at or beyond its physically-possible range (config/sensor_range_thresholds.yaml) -- likely a broken/disconnected sensor, not a real reading.
+
+  - event_type: SENSOR_CONFIDENCE_DRIFT
+    category: sensor_health
+    default_severity: 3
+    description: Manual calibration check (calibration.py) found the sensor drifted beyond tolerance from a handheld reference reading.
+
+  # --- planned, not yet raised by any engine ---
+  - event_type: FLOW_MISMATCH
+    category: anomaly
+    default_severity: 2
+    description: (planned) Flow sensor active while its valve/pump is commanded off, or vice versa.
+  - event_type: MOISTURE_NOT_RESPONDING
+    category: anomaly
+    default_severity: 2
+    description: (planned) Soil moisture not rising despite flow sensor showing water delivered.
+  - event_type: SKIPPED_SCHEDULED_WATERING
+    category: informational
+    default_severity: 4
+    description: (planned) A scheduled watering didn't run because moisture was already above threshold.
+  - event_type: UNEXPECTED_ASSET_MOVEMENT
+    category: anomaly
+    default_severity: 2
+    description: (planned) A vehicle/asset moved without a prior notification/task assignment.

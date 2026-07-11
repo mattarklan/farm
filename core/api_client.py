@@ -1,3 +1,4 @@
+#api_client
 """
 Thin HTTP client for the ingestion project's FastAPI service.
 
@@ -61,6 +62,22 @@ class IngestionAPIClient:
         if since_ts is not None:
             params["since_ts"] = since_ts
         return self._get("/events", params=params)
+
+    def get_weather_offsets(self, zone_id: str | None = None, since: str | None = None) -> list:
+        """
+        Placeholder for the future weather-offset module (schema in
+        config/weather_offset_schema.yaml). No real endpoint exists yet
+        -- calling this before that module is built will raise
+        IngestionAPIError like any other failed call. Wired up now so
+        rules can build against a stable interface once real data
+        starts flowing, instead of needing another rework later.
+        """
+        params = {}
+        if zone_id is not None:
+            params["zone_id"] = zone_id
+        if since is not None:
+            params["since"] = since
+        return self._get("/weather/offsets", params=params)
 
     def _get(self, path: str, params: dict | None = None) -> dict:
         try:

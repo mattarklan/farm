@@ -7,7 +7,6 @@ water:
     elevation_m: 12
     sensors:
       - tank_1_level
-      - tank_1_flow_in
       - tank_1_flow_out
     dependencies:
       - bore_1
@@ -25,7 +24,6 @@ water:
     elevation_m: 11
     sensors:
       - tank_2_level
-      - tank_2_flow_in
       - tank_2_flow_out
     dependencies:
       - bore_1
@@ -40,7 +38,6 @@ water:
     elevation_m: 10
     sensors:
       - tank_3_level
-      - tank_3_flow_in
       - tank_3_flow_out
     metadata:
       gps: [-31.950336, 115.86021]
@@ -53,7 +50,6 @@ water:
     elevation_m: 10
     sensors:
       - tank_4_level
-      - tank_4_flow_in
       - tank_4_flow_out
     metadata:
       gps: [-31.950315, 115.86025]
@@ -66,7 +62,6 @@ water:
     elevation_m: 9
     sensors:
       - tank_5_level
-      - tank_5_flow_in
       - tank_5_flow_out
     metadata:
       gps: [-31.950366, 115.860275]
@@ -79,7 +74,6 @@ water:
     elevation_m: 9
     sensors:
       - tank_6_level
-      - tank_6_flow_in
       - tank_6_flow_out
     metadata:
       gps: [-31.950844, 115.86052]
@@ -92,7 +86,6 @@ water:
     elevation_m: 6
     sensors:
       - header_tank_1_level
-      - header_tank_1_flow_in
       - header_tank_1_flow_out
     dependencies:
       - tank_1
@@ -106,8 +99,7 @@ water:
     type: bore
     sensors:
       - bore_1_flow
-      - bore_1_pressure
-      - bore_1_status
+      - bore_1_current
     metadata:
       depth_m: 18
       gps: [-31.950304, 115.860304]
@@ -118,8 +110,7 @@ water:
     type: bore
     sensors:
       - bore_2_flow
-      - bore_2_pressure
-      - bore_2_status
+      - bore_2_current
     metadata:
       depth_m: 22
       gps: [-31.950841, 115.86053]

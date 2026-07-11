@@ -1,0 +1,12 @@
+# staleness_thresholds.yaml
+# How old a sensor's reading is allowed to get before it's flagged
+# SENSOR_STALE. Matched by metric suffix (same pattern as event_rules.yaml).
+# Anything not listed uses default_max_age_seconds.
+
+default_max_age_seconds: 86400   # 24h
+
+overrides:
+  soil_moisture: 300     # 5 min -- updates ~every minute per Matt
+  soc: 300                # battery state of charge
+  voltage: 300             # battery voltage
+  current: 300

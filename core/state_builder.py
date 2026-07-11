@@ -56,10 +56,27 @@ class StateBuilder:
 
             for metric, value in metrics.items():
                 sensor_id = f"{asset_id}_{metric}"
+                ts = self._parse_ts(asset_ts) or datetime.now(timezone.utc)
+                conf = confidence.get(metric, 1.0)
+
+                if isinstance(value, (list, tuple)) and len(value) == 2:
+                    # GPS-style (lat, lon) pair, guessed shape -- not
+                    # confirmed against real data since no vehicle has
+                    # sent a live position yet. Split into two plain
+                    # numeric sensors since window_store/derived_engine/
+                    # comparisons all expect a number, not a tuple. If
+                    # the real field turns out to be separate
+                    # latitude/longitude metrics instead, this branch
+                    # just never triggers -- harmless either way.
+                    lat, lon = value
+                    sensors[f"{sensor_id}_lat"] = SensorState(value=lat, confidence=conf, timestamp=ts, source="api")
+                    sensors[f"{sensor_id}_lon"] = SensorState(value=lon, confidence=conf, timestamp=ts, source="api")
+                    continue
+
                 sensors[sensor_id] = SensorState(
                     value=value,
-                    quality=confidence.get(metric, 1.0),
-                    timestamp=self._parse_ts(asset_ts) or datetime.now(timezone.utc),
+                    confidence=conf,
+                    timestamp=ts,
                     source="api",
                 )
 

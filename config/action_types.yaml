@@ -1,0 +1,104 @@
+# action_types.yaml
+#
+# Every action a rule can request boils down to setting one bool or int
+# channel on a target asset -- the action_type name (OPEN_VALVE,
+# START_PUMP, ...) is purely cosmetic, for rules.yaml/GUI readability.
+# The MCU on the other end doesn't care what it's called, just what
+# channel gets set to what value.
+#
+# Adding a new action as the farm grows = add an entry here, no code
+# change. Only two value_types exist: bool (channel gets a fixed
+# value) and int (channel gets a value carried in the action's params).
+# value_type: none = no hardware effect at all (logging/alerting only).
+#
+# stop_action_type (optional): what reverses this action -- used by
+# GoalEngine to auto-derive a stop_action for duration-based rules that
+# don't specify one explicitly.
+#
+# always_allow (optional, default false): if true, constraint_engine.py
+# NEVER blocks this action_type, regardless of what's in constraints.yaml
+# -- reducing risk (turning something off, shedding load, logging) should
+# never be something a constraint can prevent. Deliberately explicit
+# per-action-type rather than inferred from value=true/false, since
+# that inference breaks for LOAD_SHEDDING specifically: value:true there
+# means "shedding engaged" i.e. the load is now OFF -- the opposite of
+# what the raw bool would suggest.
+#
+# interruptible / minimum_runtime_minutes (optional, DATA ONLY -- not
+# enforced by any code yet): describes whether it's safe to cut this
+# action short. Recorded now so the scheduler can use it once
+# preemption (a higher-priority request forcibly stopping a lower one)
+# is actually built -- right now nothing tries to stop an action early
+# except its own until-conditions or rule deactivation, so there's
+# nothing yet for this to protect against.
+
+action_types:
+
+  OPEN_VALVE:
+    value_type: bool
+    channel: valve_state
+    value: true
+    stop_action_type: CLOSE_VALVE
+    interruptible: true
+    minimum_runtime_minutes: 0
+
+  CLOSE_VALVE:
+    value_type: bool
+    channel: valve_state
+    value: false
+    always_allow: true
+
+  START_PUMP:
+    value_type: bool
+    channel: pump_state
+    value: true
+    stop_action_type: STOP_PUMP
+    interruptible: false
+    minimum_runtime_minutes: 5   # short-cycling a pump motor is bad -- see constraints.yaml's existing throttle rule for the start-side version of this same concern
+
+  STOP_PUMP:
+    value_type: bool
+    channel: pump_state
+    value: false
+    always_allow: true
+
+  LOAD_SHEDDING:
+    value_type: bool
+    channel: load_shed_state
+    value: true
+    always_allow: true   # this IS the protective action -- engaging it should never be blockable, even at critical battery
+
+  SUSPEND_IRRIGATION_ZONE:
+    value_type: bool
+    channel: valve_state
+    value: false
+    always_allow: true
+
+  SHUT_OFF_VALVE:
+    value_type: bool
+    channel: valve_state
+    value: false
+    always_allow: true
+
+  SET_FLOW_RATE:
+    value_type: int
+    channel: flow_rate_lpm
+    param: flow_rate_lpm   # which key in the action's params carries the int value
+
+  LOG_ONLY:
+    value_type: none
+    always_allow: true
+
+  TRIGGER_ALERT:
+    value_type: none
+    always_allow: true
+
+  # governance's schema uses lowercase -- same channels, just aliased.
+  # (executor.py also does a case-insensitive fallback lookup, so this
+  # section is really just for clarity/documentation; either works.)
+  open_valve: {value_type: bool, channel: valve_state, value: true, stop_action_type: close_valve}
+  close_valve: {value_type: bool, channel: valve_state, value: false, always_allow: true}
+  start_pump: {value_type: bool, channel: pump_state, value: true, stop_action_type: stop_pump}
+  stop_pump: {value_type: bool, channel: pump_state, value: false, always_allow: true}
+  log_only: {value_type: none, always_allow: true}
+  trigger_alert: {value_type: none, always_allow: true}

@@ -1,49 +1,69 @@
+# constraints.yaml -- the locked-rules safety net. Applies to EVERY
+# proposed action regardless of which rule (yours, governance's, FOIS's)
+# produced it -- this is what protects the system if a bad rule gets in
+# somehow. {sensor, op, value} directly against state["sensors"];
+# "{target}" resolves to the action's own target.
+#
+# IMPORTANT: action_types.yaml's `always_allow: true` flag makes
+# CLOSE_VALVE/STOP_PUMP/LOAD_SHEDDING/etc. bypass this file entirely --
+# turning something off is never blockable, by design. Only "on"-type
+# actions (OPEN_VALVE, START_PUMP) can actually be gated here.
+
 constraints:
-  # --- Existing Constraints ---
+
+  # --- Battery protection (your stated bounds: <11.6V or >14.4V) ---
+  # Overvoltage (>14.4V) isn't included below -- it's a charging/BMS
+  # concern, not something OPEN_VALVE/START_PUMP relate to. Better fit
+  # as an event_rules.yaml threshold or an anomaly rule than a
+  # constraint here; flagging rather than forcing an ill-fitting mapping.
+
+  - id: no_open_valve_battery_voltage_critical
+    action_type: OPEN_VALVE
+    condition: {sensor: battery_1_voltage, op: lt, value: 11.6}
+    mode: block
+    reason: "Battery voltage below safe minimum (11.6V)"
+
+  - id: no_start_pump_battery_voltage_critical
+    action_type: START_PUMP
+    condition: {sensor: battery_1_voltage, op: lt, value: 11.6}
+    mode: block
+    reason: "Battery voltage below safe minimum (11.6V)"
+
+  # Belt-and-suspenders: SOC estimate as a second, independent signal
+  # alongside voltage (voltage sags under momentary load even when SOC
+  # estimate lags behind) -- same "on" actions, lower/harder floor.
+
+  - id: no_open_valve_battery_soc_critical
+    action_type: OPEN_VALVE
+    condition: {sensor: battery_1_soc, op: lt, value: 10}
+    mode: block
+    reason: "Battery SOC critically low"
+
+  - id: no_start_pump_battery_soc_critical
+    action_type: START_PUMP
+    condition: {sensor: battery_1_soc, op: lt, value: 10}
+    mode: block
+    reason: "Battery SOC critically low"
+
+  # --- Existing, working ---
   - id: no_irrigation_low_pressure
     action_type: SUSPEND_IRRIGATION_ZONE
-    condition:
-      water_pressure_min: 120
+    condition: {sensor: "{target}_pressure", op: lt, value: 120}
     mode: block
     reason: "Insufficient pressure"
 
-  - id: no_load_shed_when_critical_soc
-    action_type: LOAD_SHEDDING
-    condition:
-      battery_soc_min: 10
-    mode: block
-    reason: "Battery critically low"
-
-  - id: valve_close_flow_spike_delay
-    action_type: SHUT_OFF_VALVE
-    condition:
-      max_flow_change_per_min: 20
-    mode: delay
-    delay_seconds: 60
-    reason: "Flow instability protection"
-
-  # --- New Infrastructure Safety Guards ---
-  - id: prevent_bore_run_dry
-    action_type: START_PUMP
-    condition:
-      # If the source water source is below a critical threshold, block execution
-      source_tank_level_min: 20.0
-    mode: block
-    reason: "Aborting pump start: Source tank/bore water level is too low to safely pump."
-
-  - id: prevent_tank_overflow
-    action_type: START_PUMP
-    condition:
-      # Don't try pumping into a tank that's already mostly full
-      target_tank_level_max: 90.0
-    mode: block
-    reason: "Aborting pump start: Destination tank is already near full capacity."
-
-  - id: throttle_high_frequency_pumping
-    action_type: START_PUMP
-    condition:
-      # Protect pump motors from cycling on and off rapidly (short-cycling)
-      min_time_since_last_run_minutes: 15
-    mode: delay
-    delay_seconds: 900
-    reason: "Delaying pump ignition to prevent motor wear from rapid cycling."
+# --- STILL NOT ADDED -- needs the tank/pump/bore source mapping ---
+#
+# "Don't drain a tank to 0" and "don't run a bore dry" both need to know
+# WHICH tank/bore feeds a given zone/pump -- the registry doesn't expose
+# this chain yet, and nothing hardcodes it either. Once you tell me the
+# actual mapping (which tank/header feeds zone_a and zone_b, what feeds
+# pump_1), these become two more straightforward {sensor,op,value}
+# entries, same shape as the battery ones above -- not a big job, just
+# needs that one piece of information first.
+#
+# valve_close_flow_spike_delay / throttle_high_frequency_pumping -- as
+# before, these need _check_derived's {target} support (rate-of-change)
+# and GoalEngine's existing min_interval_days (works for fractional
+# days too -- e.g. 15 min = 0.0104) respectively, not new constraint
+# entries.

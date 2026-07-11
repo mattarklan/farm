@@ -1,3 +1,4 @@
+#taking weather forecast info and wanting to store it somewhere. it doesnt need to be store long term because its only for 7 days in the future not years. i want to be able to check what the forecast said about temp, rain, wind, against what the weather station on the roof actually recorded. for adjusting expectations on the forecast. if it says its going to rain tomorrow then the operator may decide not to irrigate today depending on the rule. would need to find out how much rain corresponds to how much soil moisture and how accurate the forecast is. then create a json for weather offset.
 from pathlib import Path
 from rules import Rule, Decision
 from validator import load_locked_rules, validate_schema, validate_locked_rules

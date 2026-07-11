@@ -3,8 +3,9 @@ from datetime import datetime, timedelta
 
 class ConstraintEngine:
 
-    def __init__(self, config):
+    def __init__(self, config, action_types_config=None):
         self.constraints = config.get("constraints", [])
+        self.action_types = (action_types_config or {}).get("action_types", {})
 
 
     def evaluate(self, actions, state, derived):
@@ -38,6 +39,13 @@ class ConstraintEngine:
 
     def _evaluate_action(self, action, state, derived):
 
+        spec = self.action_types.get(action.action_type) or self.action_types.get(action.action_type.upper())
+        if spec and spec.get("always_allow"):
+            # Reducing risk (turning something off, shedding load,
+            # logging) should never be something a constraint can
+            # prevent -- see action_types.yaml's always_allow note.
+            return {"status": "allow"}
+
         for rule in self.constraints:
 
             if rule["action_type"] != action.action_type:
@@ -60,7 +68,7 @@ class ConstraintEngine:
         # -----------------------------
         # RAW STATE CHECKS
         # -----------------------------
-        raw_violation = self._check_raw(condition, state)
+        raw_violation = self._check_raw(condition, state, action)
 
         # -----------------------------
         # DERIVED CHECKS
@@ -110,19 +118,41 @@ class ConstraintEngine:
     # -----------------------------
     # RAW STATE EVALUATION
     # -----------------------------
-    def _check_raw(self, condition, state):
+    def _check_raw(self, condition, state, action):
+        """
+        Was: state.get("water", {})/state.get("energy", {}) -- the real
+        state dict has no such nested keys (it's flat, state["sensors"][id]),
+        so this always returned False regardless of real readings.
 
-        water = state.get("water", {})
-        energy = state.get("energy", {})
+        Now: {sensor, op, value} directly against state["sensors"],
+        same shape as goal_engine's `until` sensor/constraint conditions.
+        "{target}" in the sensor name is substituted with the action's
+        own target, so one constraint can apply to every asset a given
+        action_type might run against instead of one hardcoded sensor_id.
+        """
+        if "sensor" not in condition:
+            return False  # not a raw-sensor condition (e.g. a derived-only or risk-only rule)
 
-        if "battery_soc_min" in condition:
-            if energy.get("battery_soc_percent", 100) < condition["battery_soc_min"]:
-                return True
+        sensor_id = condition["sensor"]
+        if "{target}" in sensor_id:
+            if not action.target:
+                return False
+            sensor_id = sensor_id.replace("{target}", action.target)
 
-        if "water_pressure_min" in condition:
-            if water.get("pressure_kpa", 999) < condition["water_pressure_min"]:
-                return True
+        sensor_state = state["sensors"].get(sensor_id)
+        if sensor_state is None:
+            return False
 
+        return self._compare(sensor_state.value, condition.get("op", "lt"), condition["value"])
+
+    @staticmethod
+    def _compare(left, op, right):
+        if op == "lt": return left < right
+        if op == "lte": return left <= right
+        if op == "gt": return left > right
+        if op == "gte": return left >= right
+        if op == "eq": return left == right
+        if op == "neq": return left != right
         return False
 
 
@@ -165,8 +195,21 @@ class ConstraintEngine:
         risk = 0.0
 
         # battery stress
-        battery = state.get("energy", {}).get("battery_soc_percent", 100)
-        if battery < 20:
+        # Was: state.get("energy", {}).get("battery_soc_percent", 100) --
+        # same bug _check_raw used to have. state is flat
+        # (state["sensors"][sensor_id]), there's no "energy" key, so this
+        # always silently fell back to 100 and could never fire.
+        # Battery SOC readings are a loose guess (low confidence) right
+        # now, so this only counts a "_soc" sensor if it's actually
+        # trusted (confidence > 0) -- same "don't judge off an untrusted
+        # reading" rule every other engine follows. Takes the worst
+        # (lowest) trusted SOC across all battery sensors rather than
+        # assuming there's exactly one.
+        battery_socs = [
+            s.value for sid, s in state["sensors"].items()
+            if sid.endswith("_soc") and s.confidence > 0
+        ]
+        if battery_socs and min(battery_socs) < 20:
             risk += 0.4
 
         # rapid decline risk

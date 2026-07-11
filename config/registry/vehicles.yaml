@@ -5,26 +5,29 @@ tractors:
     type: tractor
     elevation_m: 12
     sensors:
-      - tractor_100_status
-      - tractor_100_fuel
-      - tractor_100_engine_temperature
+      - tractor_100_temperature
       - tractor_100_battery_voltage
+      - tractor_100_latitude
+      - tractor_100_longitude
+      - tractor_100_fuel
+      - tractor_100_hours  # real sensor (uptime meter), not inferred — see loader.py note
     metadata:
       hp: 100
       latest_service: 2018
       gps: [-31.950762, 115.860088]
 cars:
-  dads_ute:
+  ute_1:
     id: ute_1
     name: Dad's Ute
     type: vehicle
     elevation_m: 12
     sensors:
-      - ute_1_status
-      - ute_1_fuel
-      - ute_1_engine_temperature
+      - ute_1_temperature
       - ute_1_battery_voltage
-      - previous_visit
+      - ute_1_latitude
+      - ute_1_longitude
+      - ute_1_fuel
+      - ute_1_hours  # real sensor (uptime meter), not inferred — see loader.py note
     metadata:
       notes: not at farm full time
       latest_service: 2018

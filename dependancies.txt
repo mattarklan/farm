@@ -20,5 +20,7 @@ python -m farm.data.ingest
 python -m farm.data.simulator
 mosquitto_sub -h localhost -t "farm/#" -v
 uvicorn farm.api.api:app --reload
-
+cd desktop/farm
 http://127.0.0.1:8000/docs#/default
+
+have to run migrate when starting a new db or making a registry change

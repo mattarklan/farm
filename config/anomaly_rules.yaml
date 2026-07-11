@@ -1,0 +1,94 @@
+# anomaly_rules.yaml
+# Cross-sensor / commanded-vs-actual expectation checks. New instances
+# of the 3 types below are pure YAML -- see anomaly_engine.py for what
+# each type means and what a genuinely new type would need.
+
+rules:
+
+  - id: tank_1_mass_balance
+    type: mass_balance
+    description: "tank_1 level should track flow direction (inflow vs outflow)"
+    asset: tank_1
+    level_sensor: tank_1_level
+    inflow_sensor: tank_1_flow_in
+    outflow_sensor: tank_1_flow_out
+    flow_deadband: 0.5
+    slope_deadband: 0.001
+    sustained_seconds: 900          # 15 min before flagging -- avoid noise on brief readings
+    event_type: TANK_MASS_BALANCE_MISMATCH
+    severity: 2
+
+  - id: bore_1_dry_or_faulty
+    type: sensor_pair
+    description: "bore running but no flow -- possibly dry or faulty"
+    condition_sensor: bore_1_status
+    condition_op: eq
+    condition_value: 1
+    expect_sensor: bore_1_flow
+    expect_op: gt
+    expect_value: 0.1
+    sustained_seconds: 300
+    event_type: BORE_NO_FLOW
+    severity: 1
+
+  - id: pump_1_running_no_flow
+    type: commanded_vs_sensor
+    description: "pump commanded on but its flow sensor shows nothing"
+    commanded_target: pump_1
+    commanded_action_type: START_PUMP
+    expect_sensor: pump_1_flow
+    expect_op: gt
+    expect_value: 0.1
+    sustained_seconds: 300
+    event_type: PUMP_NO_FLOW
+    severity: 1
+
+  - id: dads_ute_geofence
+    type: geofence
+    description: "dads_ute more than 250m from the farm's reference point"
+    asset: dads_ute
+    # GUESSED field name -- no vehicle has sent a live GPS reading yet.
+    lat_sensor: dads_ute_gps_lat
+    lon_sensor: dads_ute_gps_lon
+    # Hardwired, shared across all vehicles -- edit directly here.
+    # This is the centroid of the tank/bore/zone cluster already in the
+    # registry (not the true property centroid -- the farm's a ~500x500x700m
+    # triangle and these assets are all clustered in one corner of it).
+    # Replace with whatever reference point actually makes sense to you.
+    center: [-31.950457, 115.860276]
+    radius_meters: 250
+    # NOTE: from any single center, the far corners of a 500x500x700m
+    # right triangle are 350m+. 250m WILL false-positive at the far end
+    # of the property -- fine for initial IRL testing per your call,
+    # widen once you've seen it in practice.
+    sustained_seconds: 0
+    event_type: VEHICLE_OUTSIDE_GEOFENCE
+    severity: 1   # CRITICAL
+    # Evidence trail -- survives independently of ingestion's 90-day
+    # purge (core/incident_recorder.py, writes to config/incident_log.json,
+    # never auto-deleted). Real confirmed sensor names for dads_ute --
+    # note the ute_1_ prefix mismatch (asset_id is "dads_ute" but its
+    # sensors are prefixed "ute_1_", same bug as header_tank_1).
+    record_sensors:
+      - dads_ute_gps_lat
+      - dads_ute_gps_lon
+      - dads_ute_ute_1_engine_temperature
+      - dads_ute_ute_1_fuel
+      - dads_ute_ute_1_battery_voltage
+      - dads_ute_ute_1_status
+
+  - id: load_shed_ineffective
+    type: action_effect_check
+    description: "LOAD_SHEDDING ran but battery current draw didn't actually drop"
+    trigger_action_type: LOAD_SHEDDING
+    check_sensor: battery_1_current
+    check_after_seconds: 120
+    # battery_1_current is NEGATIVE while discharging (confirmed in real
+    # data, e.g. -2.959) -- successful load-shedding moves it TOWARD
+    # zero, which is numerically an INCREASE, not a decrease. Easy to
+    # get backwards -- if a future check_sensor uses the opposite sign
+    # convention (positive = draw), this needs flipping to decreases_by.
+    expect_change_op: increases_by   # increases_by | decreases_by | changes_by
+    expect_change_value: 1.0
+    event_type: LOAD_SHED_INEFFECTIVE
+    severity: 1

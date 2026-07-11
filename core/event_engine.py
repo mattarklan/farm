@@ -1,5 +1,5 @@
 #event_engine.py
-from datetime import datetime
+import uuid
 from core.models import Event
 
 
@@ -17,6 +17,13 @@ class EventEngine:
         sensors = state["sensors"]
 
         for sensor_id, sensor_state in sensors.items():
+
+            if sensor_state.confidence <= 0:
+                # No legitimate signal. ConfidenceMonitor raises its own
+                # event for this separately -- don't also let a garbage
+                # reading fire a threshold event (e.g. a dead sensor
+                # reporting 0 shouldn't look like "soil moisture is 0").
+                continue
 
             value = sensor_state.value
             asset = self.registry.get_asset_from_sensor(sensor_id)
@@ -61,13 +68,13 @@ class EventEngine:
 
                 events.append(
                     Event(
-                        id=rule["id"],
+                        id=str(uuid.uuid4()),
                         event_type=rule["event_id"],
                         asset_id=asset.id,
                         sensor_id=sensor_id,
                         severity=rule["severity"],
                         confidence=confidence,
-                        timestamp=datetime.utcnow(),
+                        timestamp=state["timestamp"],
                         data={
                             "value": value,
                             "derived": sensor_derived,

@@ -1,0 +1,435 @@
+[
+  {
+    "id": "248a52ce-8780-4d01-b067-32916776b93e",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_1",
+    "sensor_id": "tank_1_level",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:09+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "d143e386-1b6d-42e4-bd44-3179f5444a6f",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "bore_1",
+    "sensor_id": "bore_1_pressure",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:09+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "e47ae756-eff7-43d5-9ca5-5552feed62e2",
+    "event_type": "S1_SOIL_MOISTURE_LOW",
+    "asset_id": "zone_b",
+    "sensor_id": "zone_b_soil_moisture",
+    "severity": 3,
+    "confidence": 0.7,
+    "timestamp": "2026-07-07T12:11:09+00:00",
+    "data": {
+      "value": 0.293,
+      "derived": {
+        "slope": 0.0,
+        "volatility": 0.0
+      },
+      "rule_id": "S1",
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "f68423a5-9b62-4983-8550-de94e4faef24",
+    "event_type": "ACTION_BLOCKED",
+    "asset_id": "zone_b",
+    "sensor_id": "",
+    "severity": 2,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:09+00:00",
+    "data": {
+      "action_id": "3beeb693-12c1-4252-b338-5fd7fecae428",
+      "action_type": "OPEN_VALVE",
+      "reason": "Battery voltage below safe minimum (11.6V)",
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "eb94b984-056c-4749-92c4-1f3dea14238e",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_4",
+    "sensor_id": "tank_4_level",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:29+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "8c30d583-4d48-4b89-bddc-55f18a55c2c0",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_2",
+    "sensor_id": "tank_2_level",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:39+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "1ffe9b3b-20b8-48ba-b71f-2f35893769ee",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_3",
+    "sensor_id": "tank_3_flow_out",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:39+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "1d351a2d-612e-4d84-86cb-b5186dee8903",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "bore_2",
+    "sensor_id": "bore_2_pressure",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T12:11:39+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "994fc19c-e6c2-43e3-9116-ca33c71e5176",
+    "event_type": "SENSOR_OUT_OF_RANGE",
+    "asset_id": "battery_1",
+    "sensor_id": "battery_1_soc",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:40:12+00:00",
+    "data": {
+      "value": 0.0,
+      "min": 0,
+      "max": 100,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "b0c9e4bd-2785-44b8-9701-6f42982cdafd",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tractor_100",
+    "sensor_id": "tractor_100_fuel",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:40:42+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "80306e3e-f594-420b-9040-c1c420111d7d",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "bore_2",
+    "sensor_id": "bore_2_power",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:40:52+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "bc9f59c8-f057-41de-9c4f-72b0fadf79bc",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "ute_1",
+    "sensor_id": "ute_1_latitude",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:02+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "92949a39-c249-4306-a64e-dcbbcad3e69b",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "ute_1",
+    "sensor_id": "ute_1_engine_temperature",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:22+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "4a044cbc-9423-4010-a725-ade70ac1f212",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_1",
+    "sensor_id": "tank_1_flow_in",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:32+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "efaa7b20-3d03-4828-b43a-063f9cd860a5",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "bore_1",
+    "sensor_id": "bore_1_flow",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:32+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "bfe6b8c9-3836-44a4-94e5-c8db2a9a8007",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "bore_1",
+    "sensor_id": "bore_1_pressure",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:32+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "4d3b4bd0-3486-40b8-8b5b-4138a8d70bb0",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_3",
+    "sensor_id": "tank_3_level",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:42+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "301b8d06-3998-4ec7-9771-a55245900dc3",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "battery_1",
+    "sensor_id": "battery_1_current",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:41:42+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "e3dca174-f9d3-4dd9-b616-0613506840bc",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_6",
+    "sensor_id": "tank_6_flow_out",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:12+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "35a67673-4ede-4365-9685-0885b7132042",
+    "event_type": "SENSOR_VALUE_STUCK",
+    "asset_id": "ute_1",
+    "sensor_id": "ute_1_fuel",
+    "severity": 3,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:12+00:00",
+    "data": {
+      "stuck_value": 50.0,
+      "cycles": 10,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "f84f43e6-8f85-4a4e-8652-00ac48d4af96",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "ute_1",
+    "sensor_id": "ute_1_longitude",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:12+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "7798c3a6-e9d5-46e0-a0db-108096d667c8",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "battery_1",
+    "sensor_id": "battery_1_soc",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:12+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "084d2601-bb12-42cc-aa10-6f34b922f64a",
+    "event_type": "S1_SOIL_MOISTURE_LOW",
+    "asset_id": "zone_b",
+    "sensor_id": "zone_b_soil_moisture",
+    "severity": 3,
+    "confidence": 0.7,
+    "timestamp": "2026-07-07T13:42:22+00:00",
+    "data": {
+      "value": 0.294,
+      "derived": {
+        "slope": -0.00030000000000000024,
+        "volatility": 0.006209669878504015
+      },
+      "rule_id": "S1",
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "a565af8d-88b9-46fb-aa56-58d7edf64278",
+    "event_type": "ACTION_BLOCKED",
+    "asset_id": "zone_b",
+    "sensor_id": "",
+    "severity": 2,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:22+00:00",
+    "data": {
+      "action_id": "8011a2c0-01bc-4dcf-86b4-6409dc4e9db7",
+      "action_type": "OPEN_VALVE",
+      "reason": "Battery voltage below safe minimum (11.6V)",
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "d2869a3b-b006-4369-95ee-04e081511a86",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "bore_2",
+    "sensor_id": "bore_2_pressure",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:42+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  },
+  {
+    "id": "4d7f4a5f-c927-4918-acde-7ce8eface796",
+    "event_type": "SENSOR_CONFIDENCE_ZERO",
+    "asset_id": "tank_1",
+    "sensor_id": "tank_1_level",
+    "severity": 1,
+    "confidence": 1.0,
+    "timestamp": "2026-07-07T13:42:52+00:00",
+    "data": {
+      "reported_confidence": 0.0,
+      "occurrences_today": 1,
+      "is_reminder": false
+    },
+    "source": null,
+    "proposal_id": null
+  }
+]

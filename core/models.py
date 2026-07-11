@@ -9,7 +9,7 @@ from typing import Any, Optional
 @dataclass(slots=True)
 class SensorState:
     value: float = 0.0
-    quality: float = 1.0
+    confidence: float = 1.0
     timestamp: Optional[datetime] = None
     source: str = "sim"
 
@@ -27,6 +27,8 @@ class Event:
     confidence: float
     timestamp: datetime
     data: dict
+    source: Optional[str] = None       # "operator" | "fois" | None -- which rule/proposal caused this
+    proposal_id: Optional[str] = None  # governance proposal id, if source == "fois"
 
 
 # -------------------------
@@ -41,6 +43,9 @@ class Action:
     priority: int
     created_from_event: str
     timestamp: datetime
+    severity: int = 3  # 1=CRITICAL..4=INFO -- tags the event raised if this action gets blocked/fails
+    source: Optional[str] = None
+    proposal_id: Optional[str] = None
 
 
 @dataclass(slots=True)

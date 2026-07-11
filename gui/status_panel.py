@@ -1,6 +1,6 @@
+#status_panel.py
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QFrame
 from PyQt6.QtCore import Qt
-
 
 def _divider():
     line = QFrame()

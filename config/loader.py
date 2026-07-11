@@ -3,7 +3,14 @@ import yaml
 
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), "registry")
 
-REGISTRY_FILES = ["water.yaml", "vehicles.yaml", "crops.yaml", "power.yaml"]
+REGISTRY_FILES = ["water.yaml", "vehicles.yaml", "crops.yaml", "power.yaml", "infrastructure.yaml"]
+
+# NOTE: vehicle `hours` is a real onboard sensor (uptime meter for the
+# sensor group itself), not something to infer from temperature/voltage
+# downstream. It tells you how long the telemetry unit has been powered
+# and reporting, which core can't reconstruct after the fact from other
+# signals — unlike vehicle status (parked/running/moving), which IS
+# inferred. Don't move `hours` into derived_state.
 
 _cache = None
 
