@@ -1,0 +1,39 @@
+growing_zones:
+  zone_a:
+    id: zone_a
+    name: Zone A
+    type: crop
+    sensors:
+      - zone_a_soil_moisture
+      - zone_a_soil_temperature
+    dependencies:
+      - tank_1
+      - tank_2
+      - battery_1
+    downstream:
+      - plants
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      size: 10x20
+      start_year: 2025
+      gps: [-31.950353, 115.860221]
+  zone_b:
+    id: zone_b
+    name: Zone B
+    type: crop
+    sensors:
+      - zone_b_soil_moisture
+      - zone_b_soil_temperature
+    dependencies:
+      - tank_1
+      - tank_2
+      - battery_1
+    downstream:
+      - plants
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      size: 10x10
+      start_year: 2025
+      gps: [-31.95039, 115.860181]

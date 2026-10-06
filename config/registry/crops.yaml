@@ -6,16 +6,21 @@ growing_zones:
     sensors:
       - zone_a_soil_moisture
       - zone_a_soil_temperature
+      - zone_a_flow
     dependencies:
       - tank_1
       - tank_2
       - battery_1
     downstream:
       - plants
+    actuators:
+      - OPEN_VALVE
     metadata:
       size: 10x20
       start_year: 2025
       gps: [-31.950353, 115.860221]
+      target_soil_moisture_min: 0.2
+      target_soil_moisture_max: 0.5
   zone_b:
     id: zone_b
     name: Zone B
@@ -23,13 +28,18 @@ growing_zones:
     sensors:
       - zone_b_soil_moisture
       - zone_b_soil_temperature
+      - zone_b_flow
     dependencies:
       - tank_1
       - tank_2
       - battery_1
     downstream:
       - plants
+    actuators:
+      - OPEN_VALVE
     metadata:
       size: 10x10
       start_year: 2025
       gps: [-31.95039, 115.860181]
+      target_soil_moisture_min: 0.2
+      target_soil_moisture_max: 0.5

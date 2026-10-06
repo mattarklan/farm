@@ -26,6 +26,8 @@ rules:
   - id: water_growing_zone_until_moist
     trigger:
       event_type: S1_SOIL_MOISTURE_LOW   # no zone_id -> applies to every zone
+    max_starts_per_day: 2       # resets at local (AWST) midnight -- see goal_engine.py
+    earliest_start_time: "04:00" # AWST -- watering before this risks mould; a trigger before 4am queues and starts AT 4am rather than being dropped
     start_action:
       type: OPEN_VALVE
       target: "$event"
@@ -40,7 +42,7 @@ rules:
       - type: sensor            # PRIMARY: moisture actually reached target
         sensor: "$event"
         op: gte
-        value: "$asset.target_soil_moisture"
+        value: "$asset.target_soil_moisture_max"
         primary: true
       - type: timer              # fallback: shouldn't take this long -- flag it if it does
         max_duration_minutes: 120
@@ -54,6 +56,7 @@ rules:
     trigger:
       event_type: S1_SOIL_MOISTURE_LOW
       zone_id: zone_tomato_a
+    earliest_start_time: "04:00" # same mould-risk reasoning -- weekly cap already covers frequency, this covers time-of-day
     start_action:
       type: OPEN_VALVE
       target: zone_tomato_a
@@ -68,7 +71,7 @@ rules:
       - type: sensor
         sensor: "$event"
         op: gte
-        value: "$asset.target_soil_moisture"
+        value: "$asset.target_soil_moisture_max"
         primary: true
       - type: timer
         max_duration_minutes: 90
@@ -114,12 +117,85 @@ rules:
           flow_rate_lpm: 5
 
   - id: load_shed_on_low_battery
-    triggers:
-      - E1_BATTERY_LOW
-    conditions: []
-    actions:
-      - type: LOAD_SHEDDING
-        severity: 1
-        params:
-          reason: battery_low
+    trigger:
+      event_type: E1_BATTERY_LOW
+    start_action:
+      type: LOAD_SHEDDING
+      target: battery_1
+      severity: 1
+      params:
+        reason: battery_low
+    stop_action:
+      type: RESTORE_LOAD
+      target: battery_1
+      severity: 3
+    until:
+      - type: sensor           # PRIMARY: battery actually recovered
+        sensor: battery_1_soc
+        op: gte
+        value: 40               # hysteresis above E1_BATTERY_LOW's <20 trigger -- avoid flapping on/off right at the line
+        primary: true
+      - type: fault_event       # fallback: LOAD_SHEDDING itself never got acked -- retry per its fallback above
+        event_types: [ACTION_NO_ACK]
     priority: 20
+    # Deliberately NO timer condition -- this is the protective action.
+    # A blind expiry could restore load while the battery's still
+    # critical. The sensor condition already fails safe: if battery_1_soc's
+    # confidence drops to 0, the "sensor" check is skipped (not treated
+    # as met), so the goal just keeps shedding rather than guessing.
+
+  # Bore_1 fills tank_1. Stays well clear of constraints.yaml's hard
+  # block (tank_1_level >= 50) by targeting 45 as ITS OWN target --
+  # the hard constraint is a backstop, not the intended operating point
+  # (same "belt and suspenders" pattern as the battery voltage+SOC
+  # constraints). Trigger is W1_TANK_LEVEL_LOW (confirmed real, from
+  # event_rules.yaml -- fires generically for any tank, scoped to
+  # tank_1 here via asset_id). W1's own threshold is 20% -- an earlier
+  # warning than this rule's own 45% target, deliberately: W1 is "worth
+  # a human's attention," this rule's target is "don't run dry."
+  - id: fill_tank_1_from_bore
+    trigger:
+      event_type: W1_TANK_LEVEL_LOW
+      asset_id: tank_1
+    start_action:
+      type: START_PUMP
+      target: bore_1
+      severity: 2
+      params: {}
+    stop_action:
+      type: STOP_PUMP
+      target: bore_1
+      severity: 3
+    until:
+      - type: sensor            # PRIMARY: tank_1 reached its (safe, sub-50%) fill target
+        sensor: tank_1_level
+        op: gte
+        value: 45
+        primary: true
+      - type: timer              # fallback: filling a tank shouldn't take this long -- flag it if it does
+        max_duration_minutes: 90
+      - type: fault_event         # fallback: no ack, refused (e.g. dry well), blocked (e.g. overflow constraint), or an anomaly-confirmed bore fault
+        event_types:
+          - ACTION_NO_ACK
+          - ACTUATOR_COMMAND_REFUSED
+          - ACTION_BLOCKED
+          - BORE_COMMANDED_NO_FLOW
+          - BORE_NO_FLOW
+          - BORE_NO_POWER_DRAW
+    # No rule-level `fallback` -- water.yaml's dependencies confirm
+    # bore_1 feeds tank_1, but bore_2 does NOT (it's paired with a
+    # different tank elsewhere on the property) -- there's no valid
+    # alternate bore for THIS tank to retarget to, so this falls
+    # through to START_PUMP's own action_types.yaml default (retry
+    # after 300s). Not hardcoding a retarget here on purpose: which
+    # bore feeds which tank is exactly the kind of mapping still being
+    # confirmed on-site -- if that ever changes, it belongs in
+    # water.yaml's dependencies, not a guess baked into this rule.
+    # Dry-well reporting is now folded into ACTUATOR_COMMAND_REFUSED
+    # above (the bore's MCU acks the START_PUMP command with a "dry"
+    # status instead of a separate cutoff flag -- see
+    # memo_ingestion_ack_interface.md) rather than a separate signal.
+    # Currently gets the same generic 300s retry as any other refusal
+    # reason -- worth giving "dry" specifically a longer delay once
+    # real reason codes exist and this turns out to matter in practice,
+    # so core isn't hammering a well that's just proven itself dry.

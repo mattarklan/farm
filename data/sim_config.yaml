@@ -1,0 +1,70 @@
+tank:
+  capacity_l: 27500
+  start_pct: 70
+  valve_flow_lps: 10        # rate when a tank's own outlet valve is open
+  flow_taper_start_pct: 100 # flow_out tapers linearly from here...
+  flow_zero_pct: 10         # ...down to zero at this level
+
+zone:
+  start_moisture: 0.18
+  watering_rate_per_s: 0.01   # moisture gain while zone valve is on
+  drying_rate_per_s: 0.005    # moisture loss while zone valve is off
+  soil_temp_watering_drop_per_tick: 0.01  # soil cools slightly while watering
+
+bore:
+  pump_lps: 20
+  power_w: 250
+  voltage_sag_v: 0.5          # per running bore, subtracted from battery_voltage
+
+gate:
+  open_at_s: 120     # elapsed sim-time before the gate opens once
+  open_duration_s: 30
+
+rain:
+  interval_s: 3600          # once per hour
+  duration_s: 300           # lasts 5 minutes
+  tank_gain_pct_per_event: 2  # total % gained per tank over the full event
+
+weather:
+  temperature_min_c: 25
+  temperature_max_c: 26
+  wind_direction_drift_deg_per_tick: 5
+
+battery:
+  capacity_wh: 5000
+  nominal_voltage_v: 48
+  voltage_empty_v: 44
+  voltage_full_v: 54
+  start_pct: 70                  # ASSUMED — not specified, matches tank default
+  actuator_momentary_wh: 100     # one-off draw whenever any actuator switches on
+  solar_cycle_hours: 1           # alternates on/off every N hours
+  solar_charge_wh_per_active_hour: 500
+  solar_voltage_active_v: 60
+  solar_voltage_inactive_v: 0
+
+# ASSUMED paths — confirm these are where actions.yaml / action_types.yaml
+# actually live relative to simulator.py, adjust if not.
+paths:
+  actions_yaml: "../config/actions.yaml"
+  action_types_yaml: "../config/action_types.yaml"
+  faults_yaml: "sim_faults.yaml"  # simulator-local, not core-managed
+  mcu_map_yaml: "mcu_map.yaml"    # simulator-local
+
+mcu:
+  # Default detection delay before a stuck/no-effect actuator's ack_status
+  # stops saying "ok" and starts reporting the real reason. Override per
+  # fault with `detection_delay_s` if a specific case needs a different lag.
+  no_effect_detection_delay_s: 2
+
+# ASSUMED — action_types.yaml's comments confirm "blocked" means never
+# applied, but the full status enum wasn't given. Anything in this list is
+# treated as "did not reach hardware"; everything else (including
+# goal_stop) is treated as applied. Edit this list, not the code, once
+# the real enum is known.
+action_log:
+  not_applied_statuses: ["blocked", "pending", "rejected", "failed", "expired", "cancelled"]
+
+# Simulator-only test faults, NOT written by core — lives next to this
+# config, not in the core-managed config/ dir. Re-read every tick, so you
+# can edit it live while the sim is running to trigger/clear faults
+# without a restart. See sim_faults.yaml for the schema.

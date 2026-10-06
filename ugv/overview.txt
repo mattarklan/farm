@@ -1,0 +1,1424 @@
+# Autonomous Rover Navigation System — Design Memo
+
+## 1. System Objective
+
+The rover is a ~0.5 m × 0.5 m square autonomous ground vehicle operating within an approximately 500 m × 500 m area.
+
+The rover will operate at approximately:
+
+- **Maximum/nominal speed:** 5 km/h
+- **Speed:** ~1.39 m/s
+- **Stopping distance:** ~0.4 m
+- **RTK GNSS:** available during normal operation
+- **RPLIDAR:** primary obstacle-detection sensor
+- **Front fixed lidar:** independent forward collision protection / degraded return-to-base protection
+- **IMU:** orientation and motion information
+- **Wheel rotary encoders:** odometry and redundancy
+- **ESP32:** low-level motor/encoder interface
+- **Navigation computer:** mapping, localization, planning and high-level control
+
+The overall design deliberately separates:
+
+1. Global positioning
+2. Static environmental mapping
+3. Learned environmental mapping
+4. Local obstacle avoidance
+5. Global path planning
+6. Local trajectory/planning
+7. Low-level motor control
+8. Fault handling
+
+---
+
+# 2. High-Level Architecture
+
+The intended architecture is:
+
+```text
+                         RTK GNSS
+                            │
+                            ▼
+                    Global position
+                            │
+                            ▼
+                     Coordinate transform
+                            │
+                            ▼
+                     Global map / pose
+                            │
+                            ▼
+                         Global A*
+                            │
+                         Global path
+                            │
+                            ▼
+RPLIDAR ─────────────► Local costmap
+                            │
+                            ▼
+                       Local planner
+                            │
+                         cmd_vel
+                            │
+                            ▼
+                          ESP32
+                       ┌────┴────┐
+                       │         │
+                    Motors    Encoders
+                       │         │
+                       └────┬────┘
+                            │
+                            ▼
+                         Odometry
+```
+
+The IMU and encoder odometry feed the pose-estimation system rather than being treated as independent navigation systems.
+
+The important conceptual separation is:
+
+**RTK tells the rover where it is globally.**
+
+**Maps tell it what is around it.**
+
+**Planners determine how to get to the destination without hitting things.**
+
+**The ESP32 executes the resulting velocity commands and reports wheel motion.**
+
+---
+
+# 3. Coordinate System
+
+The navigation system should not operate directly on latitude/longitude.
+
+A fixed GPS reference point will be established for the operating area:
+
+```text
+GPS origin:
+
+latitude  = lat0
+longitude = lon0
+```
+
+The navigation system converts GPS coordinates into a local Cartesian coordinate system, preferably local ENU:
+
+```text
+              North / Y
+                  ↑
+                  │
+                  │
+                  │
+                  └────────────→ East / X
+```
+
+Thus the navigation system works in metres:
+
+```text
+x = metres east of origin
+y = metres north of origin
+```
+
+GPS coordinates are therefore only required at the interface between the global positioning system and the local map.
+
+For example:
+
+```text
+RTK:
+lat = -32.xxxxxx
+lon = 113.xxxxxx
+
+        ↓
+
+Local coordinate:
+
+x = 127.4 m
+y = 312.8 m
+```
+
+The global planner never needs to manipulate latitude/longitude.
+
+Likewise, a GPS waypoint is converted once into the local map coordinate system:
+
+```text
+GPS waypoint
+      ↓
+local x/y
+      ↓
+A*
+```
+
+This avoids performing geographic calculations throughout the navigation code.
+
+A proper local ENU transformation should be used rather than simply subtracting decimal latitude/longitude values and treating them as metres.
+
+---
+
+# 4. Global Operating Area
+
+The intended mapped area is approximately:
+
+```text
+500 m × 500 m
+```
+
+At a global grid resolution of:
+
+```text
+0.30 m × 0.30 m
+```
+
+the map requires approximately:
+
+```text
+500 / 0.3 ≈ 1667 cells per axis
+
+1667 × 1667 ≈ 2.78 million cells
+```
+
+This is a manageable map size on the navigation computer.
+
+---
+
+# 5. Static Map
+
+The first map is created manually by driving the rover around using teleoperation.
+
+This map represents the environment that is considered permanently known.
+
+Examples include:
+
+- walls
+- buildings
+- permanent structures
+- permanent barriers
+- terrain features
+- other obstacles known to be permanent
+
+The static map is **read-only during autonomous operation**.
+
+It should never be modified by the learned obstacle system.
+
+## Static Map Resolution
+
+The static global map uses:
+
+```text
+0.30 m cells
+```
+
+Each cell only needs to represent:
+
+```text
+0 = free
+1 = occupied
+```
+
+Therefore it can be stored as a **single bit per cell**.
+
+Approximately:
+
+```text
+2.78 million cells / 8
+≈ 348 KB
+```
+
+This is extremely small by normal PC standards.
+
+The static map therefore does not need a large, expensive data structure.
+
+---
+
+# 6. Learned Global Obstacle Map
+
+A second global map exists independently from the static map.
+
+Its purpose is to record obstacles that were not present in the original static survey but have subsequently been observed repeatedly.
+
+Examples:
+
+- equipment left in an area
+- temporary structures that become persistent
+- objects that have been moved into the operating area
+- environmental changes
+
+The learned map is also approximately:
+
+```text
+500 m × 500 m
+0.30 m resolution
+1 bit/cell
+```
+
+Its basic representation is:
+
+```text
+0 = no learned obstacle
+1 = learned obstacle
+```
+
+The effective global occupancy is:
+
+```text
+GLOBAL OCCUPIED =
+    STATIC OCCUPIED
+    OR
+    LEARNED OCCUPIED
+```
+
+The static map itself remains untouched.
+
+This separation is important because a temporary or incorrectly detected object must never corrupt the original surveyed map.
+
+---
+
+# 7. Unknown and Unexplored Areas
+
+Unexplored cells are considered **traversable**.
+
+The system therefore does not need to prohibit A* from entering areas that have not previously been observed.
+
+However, the implementation should retain enough information to distinguish:
+
+- static free
+- static occupied
+- learned occupied
+- currently observed clear
+- never observed
+
+if that information is useful to the learned-obstacle logic.
+
+The navigation policy itself remains:
+
+> Unexplored does not mean blocked.
+
+---
+
+# 8. Learned Obstacle Acquisition
+
+The RPLIDAR continuously observes the environment.
+
+A newly detected object is not immediately promoted to the learned global map.
+
+Instead, repeated observations are required.
+
+The proposed parameters are:
+
+```text
+RPLIDAR update rate: ~7.5 Hz
+
+Occupancy confirmation:
+25 observations
+
+Clear/removal confirmation:
+50 observations
+```
+
+At 7.5 Hz:
+
+```text
+25 scans ≈ 3.33 seconds
+
+50 scans ≈ 6.67 seconds
+```
+
+At approximately 1.39 m/s, the rover travels roughly:
+
+```text
+4.6 m
+```
+
+during 25 scans.
+
+This gives a significant temporal filter against single-frame lidar noise.
+
+---
+
+# 9. Visibility and Ray Tracing
+
+A critical rule is:
+
+**A cell can only receive a "clear" observation if the lidar actually had line-of-sight to that cell.**
+
+A lidar ray conceptually looks like:
+
+```text
+Rover ──────── free ──────── obstacle
+  R             . . . .          #
+```
+
+The cells between the rover and the detected obstacle are observed free.
+
+Anything behind the obstacle is unknown.
+
+Therefore:
+
+```text
+Rover ─── # ───────── X
+         obstacle     unknown
+```
+
+The `X` cells must not receive a "clear" observation because the lidar cannot see them.
+
+Likewise, failure to detect an object is not automatically evidence that the object is absent.
+
+Only cells actually traversed by a lidar ray can have their clear-observation counter updated.
+
+---
+
+# 10. Learned Map Hysteresis
+
+The learned obstacle system should use hysteresis so that one or two bad lidar returns do not cause the global map to continually switch state.
+
+Conceptually:
+
+```text
+             lidar observations
+
+                  occupied
+                     │
+                     ▼
+                hit counter
+                     │
+                 >= 25
+                     │
+                     ▼
+             LEARNED OCCUPIED
+                     │
+                     │ visible + clear
+                     ▼
+                miss counter
+                     │
+                 >= 50
+                     │
+                     ▼
+               NOT OCCUPIED
+```
+
+A score-based implementation is also possible:
+
+```text
+hit  → score + 1
+clear → score - 1
+```
+
+with thresholds and saturation.
+
+The exact implementation can be chosen later.
+
+The important principle is:
+
+**Occluded cells do not have their state changed.**
+
+---
+
+# 11. Global Costmap Composition
+
+The global costmap is effectively composed of:
+
+```text
+STATIC MAP
+     +
+LEARNED OBSTACLE MAP
+     ↓
+GLOBAL COSTMAP
+```
+
+The global map does not need fine-grained inflation for the rover footprint.
+
+The global planner can therefore operate on relatively simple occupancy information.
+
+Fine collision clearance is handled locally.
+
+---
+
+# 12. RPLIDAR and Local Costmap
+
+The local costmap is significantly higher resolution.
+
+Proposed configuration:
+
+```text
+10 m × 10 m
+
+cell size:
+50 mm
+
+cells:
+200 × 200
+
+total:
+40,000 cells
+```
+
+This is small enough that computational optimization should not be a concern initially.
+
+The local map follows the rover.
+
+Its purpose is immediate obstacle avoidance and local planning.
+
+It is continuously updated from the RPLIDAR.
+
+---
+
+# 13. Local Costmap Information
+
+Unlike the static and learned global maps, the local map needs richer information.
+
+It may contain:
+
+- occupancy
+- observation confidence
+- temporal persistence
+- obstacle age
+- clearing information
+- inflation/cost values
+
+A byte or several bytes per cell is entirely reasonable.
+
+There is no need to force the local map into a one-bit representation because it has a fundamentally different purpose.
+
+---
+
+# 14. Local Obstacle Handling
+
+The local costmap should react rapidly to obstacles.
+
+A newly observed object does not necessarily need to become a global obstacle.
+
+For example:
+
+```text
+person
+vehicle
+animal
+temporary object
+```
+
+can simply exist in the local costmap and be avoided.
+
+If the object remains consistently present and meets the learned-obstacle criteria, it can be promoted to the learned global map.
+
+This provides two timescales:
+
+```text
+Local:
+fast reaction
+
+Global:
+persistent environmental knowledge
+```
+
+---
+
+# 15. Rover Geometry
+
+The rover is approximately:
+
+```text
+0.5 m × 0.5 m
+```
+
+and has a square footprint.
+
+The local planner must therefore account for the actual rover footprint rather than treating the rover as a point.
+
+The desired minimum clearance is based on the physical rover dimensions and the required operating clearance.
+
+The user's stated requirement is approximately:
+
+```text
+0.5 m available width
+```
+
+as the minimum passage width for the 0.5 m-wide rover, although in actual implementation a zero-clearance geometric fit should not be considered practically safe.
+
+The local planner is responsible for footprint handling and inflation.
+
+The global costmap does not need to carry the full inflated geometry.
+
+---
+
+# 16. RPLIDAR Position
+
+The RPLIDAR is mounted near the front of the rover and horizontally oriented.
+
+This provides a useful forward obstacle field for local navigation.
+
+The lidar's nominal useful range is approximately:
+
+```text
+12 m
+```
+
+under favourable conditions.
+
+The navigation system should not depend on the full 12 m range always being available.
+
+Surface properties, environmental conditions, incidence angle and other factors can reduce useful detection range.
+
+---
+
+# 17. Vehicle Speed and Stopping Distance
+
+Nominal rover speed:
+
+```text
+5 km/h
+≈ 1.39 m/s
+```
+
+Measured/expected stopping distance:
+
+```text
+≈ 0.4 m
+```
+
+The rover therefore has a substantial lidar detection-distance margin.
+
+For example, even with only 5 m of useful obstacle detection:
+
+```text
+5 m / 1.39 m/s
+≈ 3.6 seconds
+```
+
+of travel time exists before reaching the detected obstacle, compared with a stopping distance of approximately 0.4 m.
+
+The actual safety controller should still use measured stopping performance rather than assuming the nominal value is always achieved.
+
+---
+
+# 18. Global Path Planning
+
+The global planner will use A*.
+
+A 4-connected grid is not appropriate because it forces unnecessary Manhattan-style movement.
+
+Instead, use an **8-connected grid**:
+
+```text
+↖  ↑  ↗
+←  X  →
+↙  ↓  ↘
+```
+
+Typical movement costs:
+
+```text
+horizontal/vertical = 1.0
+diagonal             = sqrt(2)
+```
+
+The appropriate heuristic is an **octile-distance heuristic**.
+
+This allows the planner to recognize that travelling diagonally is preferable to:
+
+```text
+5 m sideways
++
+5 m forward
+```
+
+when a diagonal route is available.
+
+---
+
+# 19. Global Replanning
+
+A global route is not considered permanent.
+
+If the learned obstacle map changes such that a newly learned obstacle intersects the current global route:
+
+```text
+current route
+     │
+     ▼
+new learned obstacle
+     │
+     ▼
+route invalid
+     │
+     ▼
+A* replan
+```
+
+The rover must re-run global planning.
+
+Otherwise the learned global map would serve little purpose.
+
+Replanning can also occur when:
+
+- the goal changes
+- the current path becomes impossible
+- localization changes sufficiently
+- the local planner cannot find a valid route
+- a major obstacle configuration changes
+
+---
+
+# 20. Local Planning
+
+The local planner receives:
+
+```text
+global path
++
+local costmap
++
+current pose
++
+rover footprint
+```
+
+and produces a locally executable trajectory / velocity command.
+
+The local planner handles:
+
+- obstacle avoidance
+- footprint clearance
+- local deviations from the global path
+- immediate collision avoidance
+- temporary obstacles
+- local path following
+
+The global planner determines the broad route.
+
+The local planner determines how to safely execute it.
+
+---
+
+# 21. GPS / RTK Role
+
+RTK GNSS is primarily responsible for global positioning.
+
+It provides:
+
+- current global position
+- goal position
+- waypoint positions
+- global path targets
+- return-to-base position
+
+GPS does **not** directly perform obstacle avoidance.
+
+For example:
+
+```text
+GPS:
+"Goal is at x=420 m, y=180 m"
+
+A*:
+"Route around this environment"
+
+Local planner:
+"Currently there is an obstacle here; deviate around it"
+
+ESP32:
+"Execute the velocity command"
+```
+
+This is a clean division of responsibilities.
+
+---
+
+# 22. IMU Role
+
+The IMU supplies orientation and motion information.
+
+Initial heading can be established using the IMU.
+
+During operation, heading can be supported by:
+
+- IMU
+- successive RTK positions when moving
+- wheel odometry
+- lidar/SLAM localization
+- previous known orientation
+
+The system therefore does not need to rely exclusively on GPS-derived heading.
+
+At low speeds, successive-position heading becomes less reliable, but the IMU and other motion information remain available.
+
+---
+
+# 23. Wheel Encoder Role
+
+Wheel encoders should be retained.
+
+They are not simply a backup for RTK.
+
+They provide high-rate local motion information:
+
+```text
+wheel movement
+     ↓
+odometry
+     ↓
+short-term pose change
+```
+
+They are useful even while RTK is functioning because RTK updates and encoder updates have different characteristics.
+
+The intended fusion is:
+
+```text
+RTK ────────┐
+             │
+IMU ─────────┼──► Pose estimator
+             │
+Encoders ────┘
+```
+
+The resulting pose estimate is then supplied to navigation.
+
+If RTK temporarily degrades while lidar-based localization remains available, the rover can continue operating.
+
+If both primary global/local localization sources are lost, the rover stops.
+
+---
+
+# 24. SLAM / Lidar Localization
+
+RPLIDAR observations can provide relative environmental information and can be used for localization against the known map.
+
+The important distinction is:
+
+```text
+RTK:
+global reference
+
+SLAM/lidar:
+relative/environmental localization
+
+Encoders:
+short-term motion
+
+IMU:
+orientation/motion
+```
+
+The system should combine these rather than treating any one sensor as universally authoritative.
+
+An unconstrained SLAM system should not be allowed to slowly drift away from the RTK-referenced global coordinate system.
+
+---
+
+# 25. Fault Handling
+
+The system has an explicit operating-state machine.
+
+The major states are:
+
+```text
+INIT
+IDLE
+NAVIGATING
+REPLANNING
+OBSTACLE_WAIT
+RETURN_TO_BASE
+FAULT_STOP
+```
+
+Additional sensor-degraded states can be represented as flags or explicit states depending on implementation.
+
+---
+
+# 26. INIT
+
+Startup checks include:
+
+- ESP32 communications
+- motor controller communication
+- RTK status
+- IMU
+- RPLIDAR
+- front fixed lidar
+- static map availability
+- learned map availability
+- pose initialization
+- configuration validity
+
+Only after required systems are valid should the rover transition to `IDLE`.
+
+---
+
+# 27. IDLE
+
+The rover is stationary.
+
+Possible transitions:
+
+```text
+goal received
+     ↓
+NAVIGATING
+```
+
+or:
+
+```text
+return command
+     ↓
+RETURN_TO_BASE
+```
+
+or:
+
+```text
+teleoperation
+     ↓
+TELEOP
+```
+
+if teleoperation is implemented as an explicit operational state.
+
+---
+
+# 28. NAVIGATING
+
+Normal autonomous operation.
+
+The basic loop is:
+
+```text
+read sensors
+    ↓
+update pose
+    ↓
+update local costmap
+    ↓
+update learned obstacle map
+    ↓
+validate global route
+    ↓
+local planning
+    ↓
+cmd_vel
+    ↓
+ESP32
+```
+
+The loop operates continuously.
+
+---
+
+# 29. REPLANNING
+
+Triggered when the current route becomes invalid.
+
+The global planner generates a new route using:
+
+```text
+static map
++
+learned global map
++
+current global pose
++
+goal
+```
+
+Once a valid path exists:
+
+```text
+REPLANNING
+     ↓
+NAVIGATING
+```
+
+---
+
+# 30. OBSTACLE_WAIT
+
+This handles situations where a local obstacle prevents immediate progress.
+
+The local planner may:
+
+- wait
+- attempt a local alternative
+- allow the obstacle to clear
+- determine that the global route needs to change
+
+If the obstacle becomes a persistent learned obstacle:
+
+```text
+OBSTACLE_WAIT
+      ↓
+learned obstacle
+      ↓
+REPLANNING
+```
+
+---
+
+# 31. RTK Failure
+
+If RTK fails but RPLIDAR/localization remains operational, the rover can continue using the remaining localization sources.
+
+The system should monitor localization confidence.
+
+The rover does not need to immediately stop simply because the RTK fix disappears.
+
+---
+
+# 32. RPLIDAR Failure
+
+If the primary RPLIDAR fails while RTK remains functional:
+
+```text
+normal navigation
+       ↓
+RPLIDAR failure
+       ↓
+RETURN_TO_BASE
+```
+
+The return-home route uses:
+
+- RTK global position
+- known maps
+- existing navigation information
+
+The fixed front lidar provides an independent forward collision-protection mechanism.
+
+Return-to-base should be performed conservatively, likely at reduced speed.
+
+The system should not pretend that the missing RPLIDAR information still exists.
+
+---
+
+# 33. RTK + RPLIDAR Failure
+
+If both primary global/local navigation sources become unavailable:
+
+```text
+RTK failure
++
+RPLIDAR failure
+       ↓
+FAULT_STOP
+```
+
+The rover commands zero velocity and reports a fault.
+
+There is deliberately no attempt to perform uncontrolled dead reckoning indefinitely.
+
+This is a safety-oriented decision:
+
+> If the rover cannot establish either global position or environmental localization, it stops.
+
+---
+
+# 34. Front Fixed Lidar
+
+The fixed front lidar is independent from the primary RPLIDAR.
+
+Its main purpose is degraded-mode forward collision protection.
+
+It can therefore remain operational if the RPLIDAR fails.
+
+This gives the rover a second independent layer of protection during return-to-base.
+
+It should not be treated as a replacement for the full RPLIDAR local costmap.
+
+---
+
+# 35. ESP32 Responsibilities
+
+The ESP32 should remain relatively simple.
+
+Primary responsibilities:
+
+- motor control
+- wheel encoder acquisition
+- encoder packet transmission
+- receiving velocity commands
+- motor-level watchdog
+- low-level safety behaviour
+
+It should not own:
+
+- global maps
+- A*
+- SLAM
+- global GPS navigation
+- high-level mission logic
+
+Those belong on the navigation computer.
+
+---
+
+# 36. Serial Communications
+
+The ESP32 uses its own serial connection, e.g.:
+
+```text
+COM4
+```
+
+GPS devices can remain on separate ports such as:
+
+```text
+COM3
+COM12
+```
+
+Separate processes can independently access those ports.
+
+The ESP32 connection is bidirectional:
+
+```text
+PC ───── cmd_vel ─────► ESP32
+
+PC ◄──── encoders ───── ESP32
+```
+
+A structured protocol should be used rather than arbitrary debug text.
+
+Example:
+
+```text
+ENC,12345,12367
+```
+
+and:
+
+```text
+VEL,0.50,0.00,0.20
+```
+
+The exact protocol can be finalized later.
+
+---
+
+# 37. ESP32 Watchdog
+
+The ESP32 should independently enforce a command timeout.
+
+For example:
+
+```text
+PC sends cmd_vel
+       ↓
+ESP32 receives it
+       ↓
+motor command active
+       ↓
+no new command for timeout period
+       ↓
+ESP32 commands zero velocity
+```
+
+This is critical.
+
+A Python process crashing, USB disconnecting, serial communication failing or the navigation computer freezing must not leave the motors executing the last velocity command indefinitely.
+
+The ESP32 should therefore have authority to stop the motors independently of the navigation software.
+
+---
+
+# 38. Mission Layer
+
+The mission layer sits above navigation.
+
+It handles:
+
+- destination
+- waypoint sequences
+- follow-path commands
+- return-to-base
+- mission completion
+- mission abort
+- retry/replan behaviour
+
+Example:
+
+```text
+Mission:
+Base
+ ↓
+Waypoint A
+ ↓
+Waypoint B
+ ↓
+Waypoint C
+ ↓
+Return Base
+```
+
+Each waypoint is converted from GPS coordinates to local map coordinates before being passed to the navigation system.
+
+---
+
+# 39. Overall Data Flow
+
+The complete system can be viewed as:
+
+```text
+                     ┌─────────────┐
+                     │   RTK GNSS  │
+                     └──────┬──────┘
+                            │
+                            ▼
+                     Global pose
+                            │
+                     ┌──────┴──────┐
+                     │             │
+                     ▼             ▼
+                Global map      Waypoints
+                     │             │
+                     └──────┬──────┘
+                            ▼
+                         A*
+                            │
+                       Global path
+                            │
+                            ▼
+                    ┌───────────────┐
+RPLIDAR ────────────►│ Local costmap │
+                    └───────┬───────┘
+                            │
+IMU ──────────┐            │
+              │            │
+Encoders ─────┼──► Pose    │
+              │            │
+RTK ──────────┘            │
+                            ▼
+                     Local planner
+                            │
+                         cmd_vel
+                            │
+                            ▼
+                          ESP32
+                      ┌─────┴─────┐
+                      ▼           ▼
+                   Motors      Encoders
+```
+
+---
+
+# 40. Recommended Software Separation
+
+A sensible software decomposition would be:
+
+```text
+navigation/
+│
+├── gps/
+│   └── rtk_reader
+│
+├── imu/
+│   └── imu_reader
+│
+├── odometry/
+│   └── encoder_reader
+│
+├── localization/
+│   └── pose_estimator
+│
+├── lidar/
+│   └── rplidar_reader
+│
+├── maps/
+│   ├── static_map
+│   ├── learned_map
+│   └── local_costmap
+│
+├── planning/
+│   ├── global_astar
+│   └── local_planner
+│
+├── mission/
+│   └── waypoint_manager
+│
+├── safety/
+│   └── state_machine
+│
+└── esp32/
+    └── serial_interface
+```
+
+The exact language/framework is not yet specified.
+
+---
+
+# 41. Key Design Principles
+
+The system should maintain the following boundaries:
+
+### GPS does not avoid obstacles.
+
+It provides global positioning and destination information.
+
+### A* does not directly control motors.
+
+It produces a global route.
+
+### The local planner does not redefine the global environment.
+
+It reacts to the current local obstacle field.
+
+### The static map is immutable.
+
+The learned map is separate.
+
+### Temporary obstacles do not automatically become permanent.
+
+They require repeated observations.
+
+### Absence of an observation is not evidence of free space.
+
+Only visible/ray-traced space can be cleared.
+
+### Sensor failure must have defined behaviour.
+
+The rover does not blindly continue after losing critical localization information.
+
+### The ESP32 has an independent motor watchdog.
+
+Loss of the navigation computer must result in stopped motors.
+
+---
+
+# 42. Current Proposed Parameters
+
+| Parameter | Value |
+|---|---:|
+| Operating area | 500 × 500 m |
+| Global resolution | 0.30 m |
+| Global cells | ~2.78 million |
+| Static map storage | 1 bit/cell |
+| Learned map storage | 1 bit/cell |
+| Local map | 10 × 10 m |
+| Local resolution | 0.05 m |
+| Local cells | 40,000 |
+| Rover footprint | ~0.5 × 0.5 m |
+| Nominal speed | ~5 km/h |
+| Nominal speed | ~1.39 m/s |
+| Stopping distance | ~0.4 m |
+| RPLIDAR nominal range | ~12 m |
+| RPLIDAR update rate | ~7.5 Hz |
+| Learned obstacle confirmation | 25 observations |
+| Learned obstacle removal | 50 clear observations |
+| Global planner | 8-connected A* |
+| A* heuristic | Octile distance |
+| Unexplored cells | Traversable |
+| Global map inflation | Not required |
+| Local footprint/inflation | Required |
+| RTK loss + lidar available | Continue with remaining localization |
+| RPLIDAR loss + RTK available | Return to base |
+| RTK + RPLIDAR loss | Fault stop |
+
+---
+
+# 43. Remaining Engineering Work
+
+The overall architecture is now defined. The remaining work is primarily implementation/detail work rather than deciding what the system fundamentally is.
+
+The major items still requiring precise design are:
+
+1. **Coordinate transformation**
+   - WGS84 → local ENU
+   - map origin
+   - axis conventions
+
+2. **Pose estimator**
+   - RTK + IMU + encoder fusion
+   - lidar/SLAM integration
+   - covariance/confidence handling
+
+3. **Map file format**
+   - static map storage
+   - learned map persistence
+   - loading/saving
+
+4. **Lidar-to-map transformation**
+   - exact RPLIDAR mounting position
+   - yaw offset
+   - sensor height
+   - scan filtering
+
+5. **Learned obstacle algorithm**
+   - per-cell counters or confidence score
+   - ray tracing
+   - observation decay
+   - clustering of obstacle cells
+
+6. **A* implementation**
+   - 8-connected movement
+   - octile heuristic
+   - obstacle checking
+   - path smoothing if required
+
+7. **Local planner**
+   - rover footprint
+   - clearance
+   - velocity limits
+   - turning constraints
+   - local obstacle handling
+
+8. **State-machine implementation**
+   - exact transition conditions
+   - sensor timeouts
+   - fault reporting
+   - recovery behaviour
+
+9. **ESP32 protocol**
+   - encoder message format
+   - `cmd_vel` format
+   - timestamps
+   - heartbeat
+   - watchdog timeout
+
+10. **Testing**
+   - sensor dropout
+   - false lidar returns
+   - learned obstacle persistence
+   - obstacle removal
+   - GPS loss
+   - RPLIDAR loss
+   - simultaneous sensor loss
+   - communication loss
+   - emergency stop behaviour
+
+---
+
+# 44. Overall Assessment
+
+The architecture is internally coherent:
+
+```text
+                GLOBAL WORLD
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+     STATIC MAP          LEARNED MAP
+          │                   │
+          └─────────┬─────────┘
+                    ▼
+              GLOBAL A*
+                    │
+                GLOBAL PATH
+                    │
+                    ▼
+             LOCAL COSTMAP
+                    ▲
+                    │
+                 RPLIDAR
+                    │
+                    ▼
+             LOCAL PLANNER
+                    │
+                 cmd_vel
+                    │
+                    ▼
+                  ESP32
+                    │
+                  MOTORS
+```
+
+RTK provides the global reference, while IMU, encoders and lidar provide additional motion/localization information.
+
+The static map establishes the permanent environment. The learned map records persistent environmental changes without modifying the original map. The local costmap handles immediate obstacle avoidance at high resolution.
+
+The state machine provides explicit operating and failure modes, and the ESP32 watchdog provides an independent final layer against uncontrolled motion.
+
+The most important next implementation step is **not another navigation algorithm**. It is defining the **coordinate-frame conventions and pose-estimation interface** precisely. Once every sensor and map agrees on what `x`, `y`, and `yaw` mean, the rest of the architecture has a clean foundation.

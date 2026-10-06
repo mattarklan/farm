@@ -1,13 +1,17 @@
 import json
 import paho.mqtt.client as mqtt
 
-from farm.data.repository import insert_raw, upsert_latest
+from farm.data.repository import insert_raw, upsert_latest, upsert_actuator_ack
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 TOPIC = "farm/#"
 
 DEFAULT_CONFIDENCE = 1.0  # placeholder until real confidence scoring exists
+
+# Ack fields aren't ordinary sensor telemetry — see migrations/005 for why
+# they're kept out of raw_telemetry/latest_values entirely.
+ACK_METRICS = {"last_ack_ts", "ack_status"}
 
 def on_message(client, userdata, msg):
     try:
@@ -19,8 +23,11 @@ def on_message(client, userdata, msg):
 
         for metric, value in metrics.items():
             confidence = confidences.get(metric, DEFAULT_CONFIDENCE)
-            insert_raw(asset_id, metric, value, confidence, ts)
-            upsert_latest(asset_id, metric, value, confidence, ts)
+            if metric in ACK_METRICS:
+                upsert_actuator_ack(asset_id, metric, value, confidence, ts)
+            else:
+                insert_raw(asset_id, metric, value, confidence, ts)
+                upsert_latest(asset_id, metric, value, confidence, ts)
 
     except Exception as e:
         print("Error:", e)

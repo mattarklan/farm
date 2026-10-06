@@ -1,6 +1,16 @@
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsLineItem
-from PyQt6.QtGui import QPen, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QGraphicsScene,
+    QGraphicsTextItem,
+    QGraphicsRectItem,
+)
+
+from PyQt6.QtGui import (
+    QPen,
+    QColor,
+    QFont,
+)
+
+from PyQt6.QtCore import QRectF
 
 from .assets import AssetItem
 
@@ -11,6 +21,18 @@ SCENE_H = 3000
 
 PIPE_IDLE = QColor("#FFFFFF")
 PIPE_ACTIVE = QColor("#2196F3")
+
+ACTUATOR_OFF = QColor("#555555")
+ACTUATOR_ON = QColor("#2196F3")
+
+
+ICON_SCALE = 1
+TEXT_SIZE = 12
+
+PIPE_WIDTH = 8
+
+ACTUATOR_SIZE = 40
+
 
 
 class SCADAScene(QGraphicsScene):
@@ -33,8 +55,11 @@ class SCADAScene(QGraphicsScene):
 
 
         self.asset_items = {}
+        self.labels = {}
 
-        self.pipe_items = {}
+        self.connections = {}
+
+        self.actuators = {}
 
 
         self.build()
@@ -52,23 +77,29 @@ class SCADAScene(QGraphicsScene):
 
     def build(self):
 
-        positions = self.generate_layout()
+        assets = self.app_state.get_all_assets()
 
 
-        for asset in self.app_state.get_all_assets():
+        positions = self.calculate_positions(
+            assets
+        )
 
-            if asset.asset_id not in positions:
-                continue
 
+        for asset in assets:
 
             item = AssetItem(
                 asset
+            )
+
+            item.setScale(
+                ICON_SCALE
             )
 
 
             x, y = positions[
                 asset.asset_id
             ]
+
 
             item.setPos(
                 x,
@@ -92,147 +123,233 @@ class SCADAScene(QGraphicsScene):
             ] = item
 
 
-
-        self.build_pipes()
-
-
-
-    # --------------------------------------------------------
-    # Layout
-    # --------------------------------------------------------
-
-    def generate_layout(self):
-
-        layout = {}
-
-
-        humans = []
-        weather = []
-        bores = []
-        tanks = []
-        zones = []
-
-
-        for asset in self.app_state.get_all_assets():
-
-            t = asset.type
-
-
-            if t == "human":
-                humans.append(asset)
-
-            elif t in (
-                "weather",
-                "weather_station"
-            ):
-                weather.append(asset)
-
-            elif t == "bore":
-                bores.append(asset)
-
-            elif t == "tank":
-                tanks.append(asset)
-
-            elif t in (
-                "crop",
-                "zone",
-                "growing_zone"
-            ):
-                zones.append(asset)
-
-
-
-        def place_row(
-            assets,
-            y
-        ):
-
-            if not assets:
-                return
-
-
-            spacing = (
-                SCENE_W //
-                (len(assets) + 1)
+            self.add_label(
+                asset
             )
 
 
-            for i, asset in enumerate(
-                assets,
+        self.build_connections(
+            assets
+        )
+
+
+
+    # --------------------------------------------------------
+    # Automatic graph layout
+    # --------------------------------------------------------
+
+    def calculate_positions(
+        self,
+        assets
+    ):
+
+        depth_cache = {}
+
+
+        def depth(asset):
+
+            if asset.asset_id in depth_cache:
+                return depth_cache[
+                    asset.asset_id
+                ]
+
+
+            if not asset.dependencies:
+                depth_cache[
+                    asset.asset_id
+                ] = 0
+
+                return 0
+
+
+            values = []
+
+            for dep in asset.dependencies:
+
+                parent = next(
+                    (
+                        a for a in assets
+                        if a.asset_id == dep
+                    ),
+                    None
+                )
+
+                if parent:
+
+                    values.append(
+                        depth(parent)
+                    )
+
+
+            result = (
+                max(values) + 1
+                if values
+                else 0
+            )
+
+
+            depth_cache[
+                asset.asset_id
+            ] = result
+
+
+            return result
+
+
+
+        layers = {}
+
+
+        for asset in assets:
+
+            d = depth(
+                asset
+            )
+
+            layers.setdefault(
+                d,
+                []
+            ).append(
+                asset
+            )
+
+
+
+        positions = {}
+
+
+        max_layer = max(
+            layers.keys()
+        ) if layers else 0
+
+
+
+        for layer, items in layers.items():
+
+            spacing = (
+                SCENE_W //
+                (len(items)+1)
+            )
+
+
+            y = (
+                300
+                +
+                layer *
+                (
+                    SCENE_H //
+                    (max_layer+2)
+                )
+            )
+
+
+            for index, asset in enumerate(
+                items,
                 start=1
             ):
 
-                layout[
+                positions[
                     asset.asset_id
                 ] = (
-                    spacing * i,
+                    spacing * index,
                     y
                 )
 
 
-        place_row(
-            humans,
-            250
-        )
-
-        place_row(
-            weather + bores,
-            750
-        )
-
-        place_row(
-            tanks,
-            1450
-        )
-
-        place_row(
-            zones,
-            2250
-        )
-
-
-        return layout
+        return positions
 
 
 
     # --------------------------------------------------------
-    # Pipes
+    # Labels
     # --------------------------------------------------------
 
-    def build_pipes(self):
+    def add_label(
+        self,
+        asset
+    ):
 
-        for asset in self.app_state.get_all_assets():
+        text = QGraphicsTextItem()
 
-            child = asset.asset_id
+        text.setDefaultTextColor(
+            QColor("#FFFFFF")
+        )
+
+        text.setFont(
+            QFont(
+                "Arial",
+                TEXT_SIZE
+            )
+        )
+
+        text.setPlainText(
+            asset.name
+        )
 
 
-            for parent in self.get_dependencies(
-                child
-            ):
+        item = self.asset_items[
+            asset.asset_id
+        ]
 
-                if (
-                    parent not in self.asset_items
-                    or child not in self.asset_items
-                ):
+
+        text.setPos(
+            item.x()-50,
+            item.y()+70
+        )
+
+
+        self.addItem(
+            text
+        )
+
+
+        self.labels[
+            asset.asset_id
+        ] = text
+
+
+
+    # --------------------------------------------------------
+    # Connections
+    # --------------------------------------------------------
+
+    def build_connections(
+        self,
+        assets
+    ):
+
+        lookup = {
+            a.asset_id:a
+            for a in assets
+        }
+
+
+        for asset in assets:
+
+            for dependency in asset.dependencies:
+
+
+                if dependency not in self.asset_items:
                     continue
 
 
-                a = self.asset_items[parent]
-                b = self.asset_items[child]
+                source = self.asset_items[
+                    dependency
+                ]
+
+                target = self.asset_items[
+                    asset.asset_id
+                ]
 
 
-                line = QGraphicsLineItem(
-                    a.x(),
-                    a.y(),
-                    b.x(),
-                    b.y()
-                )
-
-
-                line.setPen(
+                line = self.addLine(
+                    source.x(),
+                    source.y(),
+                    target.x(),
+                    target.y(),
                     QPen(
                         PIPE_IDLE,
-                        8
+                        PIPE_WIDTH
                     )
                 )
 
@@ -242,46 +359,88 @@ class SCADAScene(QGraphicsScene):
                 )
 
 
-                self.addItem(
-                    line
+                key = (
+                    dependency,
+                    asset.asset_id
                 )
 
 
-                self.pipe_items[
-                    (parent, child)
+                self.connections[
+                    key
                 ] = line
 
 
 
+                self.create_actuator(
+                    key,
+                    source,
+                    target
+                )
+
+
+
     # --------------------------------------------------------
-    # Dependencies
+    # Connection actuator
     # --------------------------------------------------------
 
-    def get_dependencies(
+    def create_actuator(
         self,
-        asset_id
+        key,
+        source,
+        target
     ):
 
-        asset = self.app_state.get_asset(
-            asset_id
+        x = (
+            source.x()
+            +
+            target.x()
+        ) / 2
+
+
+        y = (
+            source.y()
+            +
+            target.y()
+        ) / 2
+
+
+
+        block = QGraphicsRectItem(
+            QRectF(
+                x - ACTUATOR_SIZE/2,
+                y - ACTUATOR_SIZE/2,
+                ACTUATOR_SIZE,
+                ACTUATOR_SIZE
+            )
         )
 
-        if not asset:
-            return []
 
-
-        # AppState currently stores only GUI state.
-        # Dependencies will be attached here next.
-        return getattr(
-            asset,
-            "dependencies",
-            []
+        block.setBrush(
+            ACTUATOR_OFF
         )
+
+
+        block.setPen(
+            QPen(
+                QColor("#FFFFFF"),
+                1
+            )
+        )
+
+
+        self.addItem(
+            block
+        )
+
+
+        self.actuators[
+            key
+        ] = block
 
 
 
     # --------------------------------------------------------
-    # Telemetry updates
+    # Telemetry update
     # --------------------------------------------------------
 
     def update_asset(
@@ -289,8 +448,129 @@ class SCADAScene(QGraphicsScene):
         asset
     ):
 
-        #
-        # Next step:
-        # change pipe colours based on flow
-        #
-        pass
+        if asset.asset_id in self.labels:
+
+            text = asset.name
+
+
+            for key,value in asset.sensors.items():
+
+                if value is not None:
+
+                    text += (
+                        f"\n{key}: {value}"
+                    )
+
+
+            self.labels[
+                asset.asset_id
+            ].setPlainText(
+                text
+            )
+
+
+
+        self.update_connections()
+
+
+
+    # --------------------------------------------------------
+    # Pipe state
+    # --------------------------------------------------------
+
+    def update_connections(
+        self
+    ):
+
+        assets = {
+            a.asset_id:a
+            for a in self.app_state.get_all_assets()
+        }
+
+
+        for (
+            source,
+            target
+        ), line in self.connections.items():
+
+
+            asset = assets.get(
+                source
+            )
+
+
+            active = (
+                asset is not None
+                and self.asset_active(asset)
+            )
+
+
+            line.setPen(
+                QPen(
+                    PIPE_ACTIVE
+                    if active
+                    else PIPE_IDLE,
+                    PIPE_WIDTH
+                )
+            )
+
+
+            if (
+                source,
+                target
+            ) in self.actuators:
+
+                self.actuators[
+                    (
+                        source,
+                        target
+                    )
+                ].setBrush(
+                    ACTUATOR_ON
+                    if active
+                    else ACTUATOR_OFF
+                )
+
+
+
+    def asset_active(
+        self,
+        asset
+    ):
+
+        for key,value in asset.sensors.items():
+
+            if value is None:
+                continue
+
+
+            key = key.lower()
+
+
+            if any(
+                x in key
+                for x in [
+                    "flow",
+                    "current",
+                    "power",
+                    "running",
+                    "state"
+                ]
+            ):
+
+                try:
+
+                    if float(value) > 0.5:
+                        return True
+
+                except:
+
+                    if str(value).lower() in (
+                        "on",
+                        "true",
+                        "running"
+                    ):
+                        return True
+
+
+        return False

@@ -3,11 +3,11 @@ import sys
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
-    QToolBar,
 )
 
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QShortcut, QKeySequence
 from PyQt6.QtCore import QTimer
+
 
 from .app_state import AppState
 from .scene import build_scene
@@ -16,6 +16,7 @@ from .view import FarmView
 from .status_panel import StatusPanel
 from .trends_panel import TrendsPanel
 from .asset_adapter import registry_to_assets
+
 
 from farm.config.loader import load_registry
 from farm.core.api_client import IngestionAPIClient
@@ -36,20 +37,27 @@ class MainWindow(QMainWindow):
         )
 
 
+        self.mode = "map"
+
+
         # ----------------------------------------------------
-        # Shared application state
+        # Shared state
         # ----------------------------------------------------
 
         self.state = AppState()
 
 
+
         # ----------------------------------------------------
-        # Build scenes once
+        # Scenes
         # ----------------------------------------------------
 
         self.map_scene = build_scene(
             assets,
-            self.state,
+            self.state
+        )
+        self.api_client = IngestionAPIClient(
+            base_url="http://127.0.0.1:8000"
         )
 
         self.scada_scene = SCADAScene(
@@ -61,9 +69,11 @@ class MainWindow(QMainWindow):
             self.map_scene
         )
 
+
         self.setCentralWidget(
             self.view
         )
+
 
 
         # ----------------------------------------------------
@@ -75,14 +85,17 @@ class MainWindow(QMainWindow):
         )
 
 
+
         # ----------------------------------------------------
         # Panels
         # ----------------------------------------------------
 
         self.status_panel = StatusPanel(
             self,
-            self.state
+            self.state,
+            self.api_client,
         )
+
 
         self.trends_panel = TrendsPanel(
             self,
@@ -90,59 +103,44 @@ class MainWindow(QMainWindow):
         )
 
 
+        self.view.set_mouse_callback(
+            self.status_panel.update_gps
+        )
+
+
         self.state.on_selected_change(
             self.status_panel.update_asset
         )
+
 
         self.state.on_system_change(
             self.status_panel.update_system
         )
 
 
-        # ----------------------------------------------------
-        # Toolbar
-        # ----------------------------------------------------
-
-        toolbar = QToolBar(
-            "Views"
-        )
-
-        self.addToolBar(
-            toolbar
+        self.state.on_asset_change(
+            self._asset_updated
         )
 
 
-        map_action = QAction(
-            "Map",
+
+        # ----------------------------------------------------
+        # Space toggle
+        # ----------------------------------------------------
+
+        self.toggle_view_shortcut = QShortcut(
+            QKeySequence("Space"),
             self
         )
 
-        process_action = QAction(
-            "Process",
-            self
+        self.toggle_view_shortcut.activated.connect(
+            self.toggle_view
         )
 
-
-        map_action.triggered.connect(
-            self.show_map
-        )
-
-        process_action.triggered.connect(
-            self.show_scada
-        )
-
-
-        toolbar.addAction(
-            map_action
-        )
-
-        toolbar.addAction(
-            process_action
-        )
 
 
         # ----------------------------------------------------
-        # Telemetry refresh
+        # Telemetry
         # ----------------------------------------------------
 
         self._telemetry_timer = QTimer(
@@ -153,14 +151,15 @@ class MainWindow(QMainWindow):
             10_000
         )
 
+
         self._telemetry_timer.timeout.connect(
             self.refresh_telemetry
         )
 
+
         self._telemetry_timer.start()
 
 
-        # Initial data load
         QTimer.singleShot(
             0,
             self.refresh_telemetry
@@ -175,14 +174,40 @@ class MainWindow(QMainWindow):
 
 
     # --------------------------------------------------------
-    # Views
+    # View switching
     # --------------------------------------------------------
 
+    def toggle_view(self):
+
+        if self.mode == "map":
+
+            self.show_scada()
+
+        else:
+
+            self.show_map()
+
+
+
     def show_map(self):
+
+        self.mode = "map"
+
 
         self.view.set_scene(
             self.map_scene
         )
+
+
+        self.status_panel.show()
+
+        self.trends_panel.show()
+
+
+        self.view.set_mouse_callback(
+            self.status_panel.update_gps
+        )
+
 
         self.view.align_left()
 
@@ -190,23 +215,37 @@ class MainWindow(QMainWindow):
 
     def show_scada(self):
 
+        self.mode = "scada"
+
+
         self.view.set_scene(
             self.scada_scene
         )
+
+
+        self.status_panel.hide()
+
+        self.trends_panel.hide()
+
+
+        self.view.set_mouse_callback(
+            None
+        )
+
 
         self.view.center_scene()
 
 
 
     # --------------------------------------------------------
-    # API telemetry
+    # API refresh
     # --------------------------------------------------------
 
     def refresh_telemetry(self):
 
         try:
 
-            response = self.api.get_latest_state()
+            data = self.api.get_latest_state()
 
 
         except Exception as e:
@@ -220,7 +259,7 @@ class MainWindow(QMainWindow):
 
 
 
-        for asset in response.get(
+        for asset in data.get(
             "assets",
             []
         ):
@@ -233,7 +272,32 @@ class MainWindow(QMainWindow):
                 ),
                 asset.get(
                     "ts"
-                ),
+                )
+            )
+
+
+
+    # --------------------------------------------------------
+    # Asset update
+    # --------------------------------------------------------
+
+    def _asset_updated(
+        self,
+        asset
+    ):
+
+        selected = self.state.selected_asset
+
+
+        if not selected:
+
+            return
+
+
+        if asset.asset_id == selected.asset_id:
+
+            self.status_panel.update_asset(
+                asset
             )
 
 
@@ -265,6 +329,11 @@ class MainWindow(QMainWindow):
 
     def _resize_panels(self):
 
+        if self.mode != "map":
+
+            return
+
+
         w = self.width()
         h = self.height()
 
@@ -272,6 +341,7 @@ class MainWindow(QMainWindow):
         status_w = int(
             w * 0.22
         )
+
 
         trends_w = int(
             w * 0.29
@@ -282,7 +352,7 @@ class MainWindow(QMainWindow):
             w - status_w - trends_w,
             h - 300,
             trends_w,
-            300,
+            300
         )
 
 
@@ -290,7 +360,7 @@ class MainWindow(QMainWindow):
             w - status_w,
             h - 380,
             status_w,
-            380,
+            380
         )
 
 
@@ -306,6 +376,7 @@ def main():
 
     registry = load_registry()
 
+
     assets = registry_to_assets(
         registry
     )
@@ -314,6 +385,7 @@ def main():
     window = MainWindow(
         assets
     )
+
 
     window.showMaximized()
 

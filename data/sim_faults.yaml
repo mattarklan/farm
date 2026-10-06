@@ -1,0 +1,84 @@
+# sim_faults.yaml — simulator-only test tool, not written by core.
+# Edit this file while the simulator is running (it's re-read every tick)
+# to trigger or clear faults without restarting. Empty/missing file = no
+# faults active.
+#
+# --- Actuator/physical faults ---
+#
+#   actuator_stuck (target)
+#     The actuator lies about its own state — frozen at `stuck: "on"`/
+#     "off" regardless of commands. Models a jammed relay/solenoid.
+#     Battery load correctly follows the frozen state, not the command.
+#     Optional `ack:` — see "ack overrides" below.
+#
+#   no_effect (target)
+#     Actuator faithfully does what it's told (motor runs, current
+#     draws), but produces zero physical result — dry well, blocked pipe.
+#     ack_status stays "ok" for `detection_delay_s` (default 2s, matches
+#     "MCU won't tell core immediately") then flips to a reason code
+#     ("dry" for bores, "blocked" otherwise — override with `reason:`).
+#
+# --- Sensor-only faults ---
+#
+#   sensor_stuck (target + metric)
+#     One sensor freezes. `value` optional — omit to freeze at whatever
+#     the reading was the moment this fault is first read.
+#
+#   flow_mismatch (target, tanks only)
+#     level and flow_out stop agreeing.
+#       mode: flow_without_level -- flow_out reports normal flow, tank
+#                                    doesn't actually drain
+#       mode: level_without_flow -- tank genuinely drains, flow_out
+#                                    reports 0 throughout
+#
+# --- Comms/MCU faults ---
+#
+#   mcu_down (mcu, not target)
+#     A whole controller goes dark. EVERY sensor AND actuator it owns
+#     goes silent — no messages published at all (this silence, not a
+#     value, is what core has to detect), and any actuator on it freezes
+#     at its last known physical state. mcu id defaults to `mcu_<asset>`
+#     (see mcu_map.yaml) — most assets are their own MCU, so a tank's
+#     level+flow_out+valve all go down together, matching real wiring.
+#
+#   no_ack (target)
+#     Only the ack channel is dead — sensors and the actuator itself work
+#     completely normally, core just never gets confirmation. This is the
+#     "command never received" case distinct from no_effect.
+#
+#   ack_delay (target, delay_s default 5)
+#     Ack channel is working but laggy — resumes normally after delay_s.
+#
+# --- Ack overrides (on actuator_stuck / no_effect) ---
+#   ack: "ok"     (default) MCU thinks it's fine, keeps acking normally
+#   ack: "none"   comms dead too — no ack ever, on top of the physical fault
+#   ack: "<text>" fixed custom ack_status every tick instead of the default
+
+faults: []
+
+# faults:
+#   - target: bore_1
+#     type: actuator_stuck
+#     stuck: "off"
+#
+#   - target: bore_2
+#     type: no_effect              # dry well
+#
+#   - target: tank_3
+#     type: sensor_stuck
+#     metric: level
+#     value: 55.0
+#
+#   - target: tank_1
+#     type: flow_mismatch
+#     mode: level_without_flow
+#
+#   - mcu: mcu_tank_2
+#     type: mcu_down                # kills tank_2's level+flow_out+valve together
+#
+#   - target: zone_a
+#     type: no_ack
+#
+#   - target: tank_4
+#     type: ack_delay
+#     delay_s: 8

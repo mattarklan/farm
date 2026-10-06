@@ -1,0 +1,163 @@
+# action_types.yaml
+#
+# Every action a rule can request boils down to setting one bool or int
+# channel on a target asset -- the action_type name (OPEN_VALVE,
+# START_PUMP, ...) is purely cosmetic, for rules.yaml/GUI readability.
+# The MCU on the other end doesn't care what it's called, just what
+# channel gets set to what value.
+#
+# Adding a new action as the farm grows = add an entry here, no code
+# change. Only two value_types exist: bool (channel gets a fixed
+# value) and int (channel gets a value carried in the action's params).
+# value_type: none = no hardware effect at all (logging/alerting only).
+#
+# stop_action_type (optional): what reverses this action -- used by
+# GoalEngine to auto-derive a stop_action for duration-based rules that
+# don't specify one explicitly.
+#
+# always_allow (optional, default false): if true, constraint_engine.py
+# NEVER blocks this action_type, regardless of what's in constraints.yaml
+# -- reducing risk (turning something off, shedding load, logging) should
+# never be something a constraint can prevent. Deliberately explicit
+# per-action-type rather than inferred from value=true/false, since
+# that inference breaks for LOAD_SHEDDING specifically: value:true there
+# means "shedding engaged" i.e. the load is now OFF -- the opposite of
+# what the raw bool would suggest.
+#
+# interruptible / minimum_runtime_minutes (optional, DATA ONLY -- not
+# enforced by any code yet): describes whether it's safe to cut this
+# action short. Recorded now so the scheduler can use it once
+# preemption (a higher-priority request forcibly stopping a lower one)
+# is actually built -- right now nothing tries to stop an action early
+# except its own until-conditions or rule deactivation, so there's
+# nothing yet for this to protect against.
+#
+# fallback (optional, but every action_type below now has one -- see
+# "even if it is to simply stop"): what to attempt if this action fails.
+# "Fails" currently means constraint_engine blocks it, or executor
+# reports success=False (bad/missing param, unknown action_type), or
+# anomaly_engine's action_effect_check later shows it ran but didn't
+# produce the expected sensor change. It does NOT yet cover "the MCU
+# never acknowledged the command at all" -- that needs a real job-done
+# ack interface that doesn't exist yet (executor.py only simulates the
+# hardware effect today). Flagged as a separate, still-open item -- see
+# the 08/07/2026 devlog update.
+#
+#   type: retry   -- wait `delay_seconds`, then attempt the exact same
+#                     action again. This is the default below for
+#                     everything unless noted otherwise.
+#   type: stop     -- give up, don't retry. Only used where retrying
+#                     blind adds no value (LOG_ONLY has no hardware
+#                     effect to retry in the first place).
+#
+# A `type: retarget` (e.g. tank_1's valve fails -> try tank_2) is a
+# per-RULE decision, not a per-action_type one -- it belongs on the
+# specific goal in rules.yaml that knows what its alternative target
+# is, not here. Not added yet: none of the current rules.yaml goals
+# have an obvious fallback target defined (e.g. there's no tank-fill
+# goal in rules.yaml at all yet to attach tank_1->tank_2 to).
+#
+# This is DATA ONLY for now, same as interruptible/minimum_runtime_minutes
+# below -- goal_engine.py doesn't act on it yet. Acting on it needs a
+# result-feedback loop (pipeline telling goal_engine whether its start
+# action actually succeeded) that doesn't exist yet either. Recording
+# the intended fallback now so nothing is left undefined once that's built.
+
+action_types:
+
+  OPEN_VALVE:
+    value_type: bool
+    channel: valve_state
+    value: true
+    stop_action_type: CLOSE_VALVE
+    interruptible: true
+    minimum_runtime_minutes: 0
+    fallback: {type: retry, delay_seconds: 300}
+
+  CLOSE_VALVE:
+    value_type: bool
+    channel: valve_state
+    value: false
+    always_allow: true
+    fallback: {type: retry, delay_seconds: 60}   # a stuck-OPEN valve is worse than a stuck-open pump -- retry sooner
+
+  START_PUMP:
+    value_type: bool
+    channel: pump_state
+    value: true
+    stop_action_type: STOP_PUMP
+    interruptible: false
+    minimum_runtime_minutes: 5   # short-cycling a pump motor is bad -- see constraints.yaml's existing throttle rule for the start-side version of this same concern
+    fallback: {type: retry, delay_seconds: 300}
+
+  STOP_PUMP:
+    value_type: bool
+    channel: pump_state
+    value: false
+    always_allow: true
+    fallback: {type: retry, delay_seconds: 60}   # same reasoning as CLOSE_VALVE
+
+  LOAD_SHEDDING:
+    value_type: bool
+    channel: load_shed_state
+    value: true
+    stop_action_type: RESTORE_LOAD
+    always_allow: true   # this IS the protective action -- engaging it should never be blockable, even at critical battery
+    fallback: {type: retry, delay_seconds: 60}   # this is the protective action itself failing -- don't sit on it for 5 min
+
+  RESTORE_LOAD:
+    value_type: bool
+    channel: load_shed_state
+    value: false
+    always_allow: true
+    fallback: {type: retry, delay_seconds: 60}
+
+  SUSPEND_IRRIGATION_ZONE:
+    value_type: bool
+    channel: valve_state
+    value: false
+    always_allow: true
+    fallback: {type: retry, delay_seconds: 60}
+
+  SHUT_OFF_VALVE:
+    value_type: bool
+    channel: valve_state
+    value: false
+    always_allow: true
+    fallback: {type: retry, delay_seconds: 60}
+
+  SET_FLOW_RATE:
+    value_type: int
+    channel: flow_rate_lpm
+    param: flow_rate_lpm   # which key in the action's params carries the int value
+    fallback: {type: retry, delay_seconds: 300}
+
+  LOG_ONLY:
+    value_type: none
+    always_allow: true
+    fallback: {type: stop}   # no hardware effect -- nothing to retry
+
+  TRIGGER_ALERT:
+    value_type: none
+    always_allow: true
+    fallback: {type: retry, delay_seconds: 300}   # a failed alert is worth another attempt, unlike LOG_ONLY
+
+  # governance's schema uses lowercase -- same channels, just aliased.
+  # (executor.py also does a case-insensitive fallback lookup, so this
+  # section is really just for clarity/documentation; either works.)
+  open_valve: {value_type: bool, channel: valve_state, value: true, stop_action_type: close_valve, fallback: {type: retry, delay_seconds: 300}}
+  close_valve: {value_type: bool, channel: valve_state, value: false, always_allow: true, fallback: {type: retry, delay_seconds: 60}}
+  start_pump: {value_type: bool, channel: pump_state, value: true, stop_action_type: stop_pump, fallback: {type: retry, delay_seconds: 300}}
+  stop_pump: {value_type: bool, channel: pump_state, value: false, always_allow: true, fallback: {type: retry, delay_seconds: 60}}
+  log_only: {value_type: none, always_allow: true, fallback: {type: stop}}
+  trigger_alert: {value_type: none, always_allow: true, fallback: {type: retry, delay_seconds: 300}}
+
+# DEFAULT_FALLBACK -- the floor for any action_type that ends up with no
+# `fallback` key of its own (everything above currently has one
+# explicitly, so this doesn't apply to anything yet -- it's here so a
+# new action_type added later without thinking about fallback still
+# gets one, per "even if it is to simply stop"). DATA ONLY, same as
+# everything else on this page -- see the note above `action_types:`.
+default_fallback:
+  type: retry
+  delay_seconds: 300

@@ -85,6 +85,8 @@ class RuleEngine:
             return True
         for c in conditions:
             left_value = self._resolve_path(c["left"], state)
+            if left_value is None:
+                return False  # missing sensor, untrusted reading, or bad path -- don't match, don't crash the cycle over it
             right_value = c["right"]
             op = c["op"]
             if not self._compare(left_value, op, right_value):
@@ -93,13 +95,37 @@ class RuleEngine:
 
     # -------------------------------------------------
     # SIMPLE DOT-PATH RESOLVER
-    # e.g. "energy.battery_soc_percent"
+    # e.g. "sensors.weather_1_humidity.value" -- this IS how you write a
+    # multi-sensor condition (e.g. "humidity < x AND temp > y") today:
+    # each condition in the list independently dot-paths into state, so
+    # a rule's `conditions` can check as many different sensors as it
+    # wants, not just the one that triggered it. See
+    # water_growing_zone_until_moist for the trigger-vs-condition split
+    # this relies on: `triggers` picks WHICH event starts evaluation,
+    # `conditions` is free to check anything else in state regardless
+    # of what triggered it.
+    #
+    # Safe against a missing sensor_id (dict lookup) or an untrusted one
+    # (confidence <= 0, checked the moment traversal lands on a
+    # SensorState -- duck-typed via hasattr, not an isinstance check, so
+    # it doesn't need to import SensorState here) -- either returns None,
+    # which _evaluate_conditions treats as "doesn't match" rather than
+    # raising and losing the whole cycle over one bad condition.
     # -------------------------------------------------
     def _resolve_path(self, path, state):
         parts = path.split(".")
         value = state
         for p in parts:
-            value = value[p] if isinstance(value, dict) else getattr(value, p)
+            if isinstance(value, dict):
+                if p not in value:
+                    return None
+                value = value[p]
+            else:
+                if not hasattr(value, p):
+                    return None
+                value = getattr(value, p)
+            if hasattr(value, "confidence") and hasattr(value, "value") and getattr(value, "confidence") <= 0:
+                return None  # landed on an untrusted sensor reading mid-path -- stop here
         return value
 
     # -------------------------------------------------

@@ -1,0 +1,1684 @@
+# Rover Navigation Software — Detailed Implementation Memo
+
+## 1. Objective
+
+Build the rover navigation system as a **single native C++ application** running on the navigation computer, with multiple internal threads.
+
+The system should:
+
+- Read RTK GNSS, IMU, wheel encoders and RPLIDAR.
+- Maintain the static map, learned obstacle map and local costmap.
+- Estimate rover pose.
+- Plan global routes using A*.
+- Perform local obstacle avoidance.
+- Communicate motor commands to the ESP32.
+- Enforce safety and watchdog behaviour.
+- Provide a separate debug/visualisation interface.
+- Avoid ROS2, DDS and other middleware unless a concrete requirement appears later.
+
+### Languages
+
+| Component | Language |
+|---|---|
+| Navigation computer | **C++17 or newer** |
+| ESP32 firmware | **C++ / Arduino framework** |
+| Build system | **CMake** |
+| Debug/visualisation initially | C++ or Python, independent of rover control |
+| Configuration | YAML or TOML later; initially C++/simple config |
+| No ROS required | Yes |
+
+---
+
+# 2. Overall Architecture
+
+The navigation computer runs one executable:
+
+```text
+rover/
+└── rover_app
+```
+
+Internally:
+
+```text
+                         ┌─────────────────────┐
+                         │     RoverState      │
+                         │  Shared system data │
+                         └──────────┬──────────┘
+                                    │
+        ┌───────────────┬───────────┼───────────┬───────────────┐
+        │               │           │           │               │
+        ▼               ▼           ▼           ▼               ▼
+    RPLIDAR           IMU         GPS       Encoders       Debug Server
+     thread          thread      thread       thread           │
+        │               │           │           │              │
+        └───────────────┴───────────┼───────────┴──────────────┘
+                                    ▼
+                              Localization
+                                  thread
+                                    │
+                                    ▼
+                              Mapping threads
+                                    │
+                                    ▼
+                            Global Planner
+                                    │
+                                    ▼
+                             Local Planner
+                                    │
+                                    ▼
+                              Safety Manager
+                                    │
+                                    ▼
+                              Motor Interface
+                                    │
+                                    ▼
+                                  ESP32
+```
+
+The important point is that **the threads communicate through shared state**, not through ROS topics.
+
+---
+
+# 3. Proposed File System
+
+I would structure the project as follows:
+
+```text
+rover/
+│
+├── CMakeLists.txt
+├── README.md
+│
+├── config/
+│   ├── rover.yaml
+│   ├── sensors.yaml
+│   └── map.yaml
+│
+├── include/
+│   └── rover/
+│       │
+│       ├── common/
+│       │   ├── types.hpp
+│       │   ├── constants.hpp
+│       │   ├── time.hpp
+│       │   └── math.hpp
+│       │
+│       ├── state/
+│       │   ├── rover_state.hpp
+│       │   └── state_machine.hpp
+│       │
+│       ├── gps/
+│       │   ├── gps.hpp
+│       │   └── nmea_parser.hpp
+│       │
+│       ├── imu/
+│       │   └── imu.hpp
+│       │
+│       ├── encoders/
+│       │   └── encoders.hpp
+│       │
+│       ├── lidar/
+│       │   ├── rplidar.hpp
+│       │   ├── lidar_scan.hpp
+│       │   └── lidar_geometry.hpp
+│       │
+│       ├── localization/
+│       │   ├── localization.hpp
+│       │   ├── odometry.hpp
+│       │   └── pose.hpp
+│       │
+│       ├── maps/
+│       │   ├── static_map.hpp
+│       │   ├── learned_map.hpp
+│       │   ├── local_costmap.hpp
+│       │   └── raytracing.hpp
+│       │
+│       ├── planning/
+│       │   ├── global_planner.hpp
+│       │   ├── astar.hpp
+│       │   ├── global_path.hpp
+│       │   ├── local_planner.hpp
+│       │   └── footprint.hpp
+│       │
+│       ├── mission/
+│       │   ├── mission_manager.hpp
+│       │   └── waypoint.hpp
+│       │
+│       ├── safety/
+│       │   ├── safety_manager.hpp
+│       │   └── watchdog.hpp
+│       │
+│       ├── motors/
+│       │   └── motor_interface.hpp
+│       │
+│       └── debug/
+│           └── debug_server.hpp
+│
+├── src/
+│   │
+│   ├── main.cpp
+│   │
+│   ├── common/
+│   ├── state/
+│   ├── gps/
+│   ├── imu/
+│   ├── encoders/
+│   ├── lidar/
+│   ├── localization/
+│   ├── maps/
+│   ├── planning/
+│   ├── mission/
+│   ├── safety/
+│   ├── motors/
+│   └── debug/
+│
+├── tools/
+│   ├── map_builder/
+│   ├── map_viewer/
+│   ├── rover_visualizer/
+│   └── log_viewer/
+│
+├── maps/
+│   ├── static_map.dat
+│   └── learned_map.dat
+│
+├── logs/
+│
+└── firmware/
+    └── esp32/
+        ├── esp32.ino
+        ├── motor_control.cpp
+        ├── motor_control.hpp
+        ├── encoder.cpp
+        ├── encoder.hpp
+        └── protocol.hpp
+```
+
+This is deliberately modular without becoming a collection of separate applications.
+
+---
+
+# 4. Core Data Types
+
+Start with the common data definitions.
+
+## `include/rover/common/types.hpp`
+
+Contains basic structures:
+
+```cpp
+struct Pose
+{
+    double x;
+    double y;
+    double yaw;
+};
+
+struct Velocity
+{
+    double linear;
+    double angular;
+};
+
+struct GpsPosition
+{
+    double latitude;
+    double longitude;
+    double altitude;
+
+    bool valid;
+    bool rtk_fixed;
+};
+
+struct ImuData
+{
+    double yaw;
+    double angular_velocity;
+    double acceleration_x;
+    double acceleration_y;
+
+    bool valid;
+};
+
+struct EncoderData
+{
+    double left_distance;
+    double right_distance;
+
+    double left_velocity;
+    double right_velocity;
+
+    bool valid;
+};
+
+struct MotorCommand
+{
+    double linear;
+    double angular;
+
+    bool enabled;
+};
+```
+
+These become the basic vocabulary used throughout the system.
+
+---
+
+# 5. Central Shared State
+
+## `include/rover/state/rover_state.hpp`
+
+This is one of the most important files.
+
+It contains the data shared between threads.
+
+Conceptually:
+
+```cpp
+struct RoverState
+{
+    GpsPosition gps;
+    ImuData imu;
+    EncoderData encoders;
+    LidarScan lidar;
+
+    Pose pose;
+    Velocity velocity;
+
+    MotorCommand motor_command;
+
+    GlobalPath global_path;
+
+    RoverStateMachine state;
+
+    bool emergency_stop;
+};
+```
+
+Access must be protected.
+
+Initially:
+
+```cpp
+std::mutex state_mutex;
+```
+
+Later, if profiling shows contention, individual subsystems can use more granular locking.
+
+Do **not** optimise this prematurely.
+
+---
+
+# 6. Main Application
+
+## `src/main.cpp`
+
+This owns the application.
+
+Its responsibilities are:
+
+1. Load configuration.
+2. Initialise hardware.
+3. Initialise maps.
+4. Initialise state.
+5. Start threads.
+6. Monitor thread health.
+7. Handle shutdown.
+8. Stop the rover safely.
+
+Conceptually:
+
+```cpp
+int main()
+{
+    load_configuration();
+
+    initialise_maps();
+    initialise_hardware();
+
+    start_gps_thread();
+    start_imu_thread();
+    start_encoder_thread();
+    start_lidar_thread();
+
+    start_localization_thread();
+    start_mapping_thread();
+    start_global_planner_thread();
+    start_local_planner_thread();
+
+    start_motor_thread();
+    start_debug_server();
+
+    wait_for_shutdown();
+
+    stop_rover();
+}
+```
+
+The main function should eventually remain relatively small.
+
+---
+
+# 7. Hardware Drivers
+
+## GPS
+
+```text
+include/rover/gps/gps.hpp
+src/gps/gps.cpp
+src/gps/nmea_parser.cpp
+```
+
+Responsibilities:
+
+- Open GPS serial port.
+- Read NMEA/RTK messages.
+- Parse latitude/longitude.
+- Determine fix quality.
+- Produce timestamps.
+- Convert GPS position into local ENU coordinates.
+
+GPS should produce something like:
+
+```text
+latitude
+longitude
+altitude
+x
+y
+rtk_fixed
+valid
+timestamp
+```
+
+The rest of the navigation system should not care about NMEA sentences.
+
+---
+
+# 8. Coordinate Conversion
+
+Create a dedicated implementation rather than scattering GPS mathematics throughout the program.
+
+## `include/rover/common/math.hpp`
+
+or eventually:
+
+```text
+include/rover/gps/enu.hpp
+src/gps/enu.cpp
+```
+
+The system establishes a fixed origin:
+
+```text
+GPS origin
+    |
+    +---- East → X
+    |
+    +---- North → Y
+```
+
+Everything after conversion uses metres.
+
+For example:
+
+```text
+GPS
+ ↓
+WGS84 latitude/longitude
+ ↓
+ENU
+ ↓
+x/y metres
+ ↓
+map grid
+```
+
+A* never works directly with latitude/longitude.
+
+---
+
+# 9. IMU
+
+## `imu.hpp / imu.cpp`
+
+Responsibilities:
+
+- Read IMU serial/device interface.
+- Parse measurements.
+- Provide yaw/orientation.
+- Provide angular velocity and acceleration.
+- Timestamp measurements.
+- Detect invalid/stale data.
+
+The IMU should not itself decide where the rover goes.
+
+It is a sensor.
+
+---
+
+# 10. Wheel Encoders
+
+## `encoders.hpp / encoders.cpp`
+
+Responsibilities:
+
+- Receive encoder data from ESP32.
+- Convert counts to distance.
+- Calculate wheel velocity.
+- Detect stale data.
+- Supply odometry information.
+
+The ESP32 already measures the encoders.
+
+Therefore the navigation computer receives something like:
+
+```text
+timestamp
+left_count
+right_count
+left_velocity
+right_velocity
+```
+
+---
+
+# 11. RPLIDAR
+
+## Files
+
+```text
+rplidar.hpp
+rplidar.cpp
+lidar_scan.hpp
+lidar_geometry.hpp
+```
+
+The driver converts the RPLIDAR protocol into a clean internal representation:
+
+```cpp
+struct LidarPoint
+{
+    float angle;
+    float distance;
+};
+
+struct LidarScan
+{
+    uint64_t timestamp;
+    std::vector<LidarPoint> points;
+    bool valid;
+};
+```
+
+The rest of the system should not know anything about the RPLIDAR's serial protocol.
+
+---
+
+# 12. Localization
+
+## Files
+
+```text
+localization.hpp
+localization.cpp
+odometry.hpp
+odometry.cpp
+pose.hpp
+```
+
+This is where sensor information becomes:
+
+```text
+x
+y
+yaw
+velocity
+```
+
+The intended hierarchy is:
+
+```text
+RTK GNSS
+     +
+IMU
+     +
+wheel odometry
+     +
+lidar/SLAM when required
+          ↓
+       Pose
+```
+
+RTK provides the global reference.
+
+IMU provides orientation/motion information.
+
+Encoders provide high-rate short-term motion.
+
+Lidar can provide relative/environmental correction when RTK is unavailable.
+
+---
+
+# 13. Static Map
+
+## `static_map.hpp / static_map.cpp`
+
+The static map is approximately:
+
+```text
+500 m × 500 m
+0.3 m resolution
+```
+
+Therefore:
+
+```text
+1667 × 1667 ≈ 2.78 million cells
+```
+
+A binary representation is sufficient:
+
+```text
+0 = free
+1 = occupied
+```
+
+The static map is **read-only during normal autonomous operation**.
+
+It should be loaded at startup.
+
+---
+
+# 14. Learned Global Map
+
+## `learned_map.hpp / learned_map.cpp`
+
+Same dimensions and resolution as the static map.
+
+Conceptually:
+
+```text
+static_map
+     OR
+learned_map
+     =
+global occupancy
+```
+
+The learned layer handles newly discovered persistent obstacles.
+
+It must maintain observation confidence.
+
+Initial implementation:
+
+```text
+occupied observations >= 25
+        ↓
+mark occupied
+
+clear observations >= 50
+        ↓
+remove learned obstacle
+```
+
+These values should be configuration parameters, not hard-coded permanently.
+
+---
+
+# 15. Ray Tracing
+
+## `raytracing.hpp / raytracing.cpp`
+
+This deserves its own module.
+
+For every RPLIDAR ray:
+
+```text
+rover
+  |
+  |-------- free cells --------X obstacle
+```
+
+Cells before the obstacle can receive clear observations.
+
+The obstacle cell receives an occupied observation.
+
+Cells behind it receive **no information**.
+
+This prevents the system from making the incorrect assumption:
+
+> "The lidar did not see an obstacle there, therefore the area must be clear."
+
+That distinction is important.
+
+---
+
+# 16. Local Costmap
+
+## `local_costmap.hpp / local_costmap.cpp`
+
+Approximately:
+
+```text
+10 m × 10 m
+0.05 m resolution
+```
+
+Therefore:
+
+```text
+200 × 200
+= 40,000 cells
+```
+
+This can use richer cell values than the global map.
+
+For example:
+
+```cpp
+enum class Cost
+{
+    UNKNOWN,
+    FREE,
+    OBSTACLE,
+    INFLATED
+};
+```
+
+Later it can contain:
+
+```text
+unknown
+free
+obstacle
+inflated obstacle
+```
+
+The local map is regenerated/updated continuously from RPLIDAR observations.
+
+---
+
+# 17. Rover Footprint
+
+## `footprint.hpp / footprint.cpp`
+
+The rover is approximately:
+
+```text
+0.5 m × 0.5 m
+```
+
+The planner must not simply treat the rover as a point.
+
+A 0.5 m passage is effectively zero clearance.
+
+The footprint module determines whether the actual rover can occupy a location.
+
+Eventually this should include a safety margin:
+
+```text
+physical footprint
+        +
+safety margin
+        =
+planning footprint
+```
+
+---
+
+# 18. Global Planner
+
+## Files
+
+```text
+global_planner.hpp
+global_planner.cpp
+astar.hpp
+astar.cpp
+global_path.hpp
+```
+
+The global planner operates on:
+
+```text
+static map
++
+learned map
+```
+
+Use:
+
+**8-connected A\***
+
+with:
+
+```text
+straight cost = 1
+diagonal cost = sqrt(2)
+```
+
+and an octile-distance heuristic.
+
+Output:
+
+```text
+GlobalPath
+```
+
+containing a sequence of map/world coordinates.
+
+---
+
+# 19. Global Replanning
+
+The planner should not continuously run A* for no reason.
+
+Normal operation:
+
+```text
+Goal
+ ↓
+A*
+ ↓
+Global path
+ ↓
+Follow path
+```
+
+If the learned map discovers an obstacle intersecting the current route:
+
+```text
+New obstacle
+     ↓
+Does it intersect global path?
+     ↓
+    YES
+     ↓
+Replan
+```
+
+This becomes one of the responsibilities of the mapping/planning interface.
+
+---
+
+# 20. Local Planner
+
+## `local_planner.hpp / local_planner.cpp`
+
+Inputs:
+
+```text
+current pose
+global path
+local costmap
+rover footprint
+velocity
+```
+
+Output:
+
+```text
+linear velocity
+angular velocity
+```
+
+i.e.:
+
+```cpp
+cmd_vel
+```
+
+The local planner is responsible for:
+
+- following the global path;
+- avoiding local obstacles;
+- respecting rover footprint;
+- respecting maximum velocity;
+- respecting acceleration/deceleration limits;
+- stopping when necessary.
+
+---
+
+# 21. Motor Interface
+
+## `motor_interface.hpp / motor_interface.cpp`
+
+This is the only navigation-computer module that should know the details of the ESP32 command protocol.
+
+Example:
+
+```text
+Navigation
+    ↓
+MotorCommand
+    ↓
+MotorInterface
+    ↓
+serial
+    ↓
+ESP32
+```
+
+Do not allow planners to directly write to the serial port.
+
+---
+
+# 22. ESP32 Firmware
+
+Separate project:
+
+```text
+firmware/
+└── esp32/
+```
+
+Language:
+
+**C++ using Arduino IDE/framework**
+
+Responsibilities:
+
+- Motor control.
+- Encoder acquisition.
+- Motor PWM.
+- Serial protocol.
+- Command timeout watchdog.
+- Hardware-level safety.
+
+The ESP32 should independently enforce:
+
+```text
+No command received for X ms
+        ↓
+Motor command = zero
+```
+
+The navigation computer should therefore not be the only safety mechanism.
+
+---
+
+# 23. Safety Manager
+
+## `safety_manager.hpp / safety_manager.cpp`
+
+This is one of the highest-priority components.
+
+It decides whether motion is permitted.
+
+For example:
+
+```text
+FAULT_STOP
+    ↓
+zero velocity
+
+No valid localization
+    ↓
+zero velocity
+
+Required sensor timeout
+    ↓
+zero velocity
+
+Static front sensor detects collision risk
+    ↓
+zero velocity
+
+Local planner produces unsafe command
+    ↓
+zero velocity
+```
+
+The safety manager sits **between planning and the motor interface**.
+
+```text
+Planner
+   ↓
+requested command
+   ↓
+Safety Manager
+   ↓
+approved command
+   ↓
+ESP32
+```
+
+---
+
+# 24. State Machine
+
+## `state_machine.hpp / state_machine.cpp`
+
+States:
+
+```text
+INIT
+IDLE
+NAVIGATING
+REPLANNING
+OBSTACLE_WAIT
+RETURN_TO_BASE
+FAULT_STOP
+TELEOP
+```
+
+The state machine is the central authority over system behaviour.
+
+For example:
+
+```text
+NAVIGATING
+    ↓
+RTK lost
+    ↓
+RPLIDAR available
+    ↓
+continue using degraded localization
+```
+
+or:
+
+```text
+NAVIGATING
+    ↓
+RTK lost
+    ↓
+RPLIDAR failed
+    ↓
+FAULT_STOP
+```
+
+The exact rules should be explicitly coded rather than emerging from individual threads.
+
+---
+
+# 25. Mission Manager
+
+## `mission_manager.hpp / mission_manager.cpp`
+
+This handles high-level tasks:
+
+```text
+Go to GPS position
+Follow waypoint list
+Return to base
+Pause
+Resume
+Abort
+```
+
+It should **not** perform low-level obstacle avoidance.
+
+For example:
+
+```text
+Mission:
+    waypoint 1
+    waypoint 2
+    waypoint 3
+
+Mission Manager
+        ↓
+current goal
+        ↓
+Global Planner
+```
+
+---
+
+# 26. Debug Server
+
+## `debug_server.hpp / debug_server.cpp`
+
+This is intentionally separate from the control system.
+
+It allows a visualiser to inspect:
+
+```text
+GPS
+IMU
+pose
+lidar
+maps
+global path
+local costmap
+state machine
+motor command
+faults
+```
+
+Initially use a simple TCP server.
+
+For example:
+
+```text
+127.0.0.1:5000
+```
+
+The debug server can periodically send a snapshot.
+
+A visualiser can then run separately without being part of the navigation program.
+
+This provides the practical benefit you originally wanted from ROS topics without introducing ROS/DDS.
+
+---
+
+# 27. Visualiser
+
+Eventually:
+
+```text
+tools/
+└── rover_visualizer/
+```
+
+This can be written in Python initially because it is a **development/debugging tool**, not part of the rover's control system.
+
+It could display:
+
+```text
++--------------------------------+
+|                                |
+|          Global Map            |
+|                                |
+|       ----- path -----         |
+|             ^ rover            |
+|             |                  |
+|       local lidar              |
+|                                |
++--------------------------------+
+
+Pose:
+X:       143.2 m
+Y:        82.7 m
+Yaw:      1.42 rad
+
+RTK:      FIXED
+Lidar:    OK
+IMU:      OK
+State:    NAVIGATING
+```
+
+Later it could be replaced with a C++ visualiser if necessary.
+
+---
+
+# 28. Configuration
+
+Do not hard-code things such as:
+
+```text
+maximum speed
+lidar range
+map resolution
+serial ports
+obstacle persistence
+obstacle removal
+wheel diameter
+wheel separation
+```
+
+Put them in:
+
+```text
+config/
+```
+
+For example:
+
+```yaml
+rover:
+  width: 0.50
+  length: 0.50
+  max_speed: 1.39
+
+maps:
+  global_resolution: 0.30
+  local_resolution: 0.05
+
+learned_map:
+  occupied_threshold: 25
+  clear_threshold: 50
+
+lidar:
+  update_rate: 7.5
+
+safety:
+  stopping_distance: 0.40
+```
+
+The exact configuration format can be selected later. YAML is convenient, but initially even a simple configuration class is sufficient.
+
+---
+
+# 29. Build System
+
+Use CMake.
+
+Top-level:
+
+```text
+CMakeLists.txt
+```
+
+Initially:
+
+```text
+C++17
+-Wall
+-Wextra
+-Wpedantic
+```
+
+Build:
+
+```bash
+mkdir build
+cd build
+cmake ..
+make -j
+```
+
+Result:
+
+```text
+build/rover
+```
+
+Avoid external libraries initially wherever practical.
+
+That gives a very small dependency footprint.
+
+---
+
+# 30. Implementation Order
+
+The order matters.
+
+Do **not** start by writing A* or SLAM.
+
+### Phase 1 — Application skeleton
+
+Write:
+
+```text
+CMakeLists.txt
+main.cpp
+types.hpp
+rover_state.hpp
+```
+
+Get:
+
+```text
+one executable
+multiple threads
+shared state
+clean shutdown
+```
+
+working first.
+
+---
+
+### Phase 2 — Debug interface
+
+Implement:
+
+```text
+debug_server.hpp
+debug_server.cpp
+```
+
+Verify that an external program can connect and see the rover state.
+
+This establishes the development/debug architecture before hardware integration.
+
+---
+
+### Phase 3 — ESP32 communication
+
+Implement:
+
+```text
+motor_interface
+encoder interface
+serial protocol
+```
+
+Verify:
+
+```text
+PC → ESP32 → motors
+ESP32 → PC → encoder data
+```
+
+Then test the ESP32 watchdog independently.
+
+---
+
+### Phase 4 — GPS
+
+Implement:
+
+```text
+GPS serial driver
+NMEA parser
+RTK status
+WGS84 → ENU
+```
+
+Verify the rover can produce:
+
+```text
+x
+y
+RTK status
+```
+
+on the local map coordinate system.
+
+---
+
+### Phase 5 — IMU
+
+Implement:
+
+```text
+IMU driver
+orientation
+timestamps
+health monitoring
+```
+
+Verify yaw behaviour.
+
+---
+
+### Phase 6 — Encoder odometry
+
+Implement:
+
+```text
+encoder counts
+wheel distance
+wheel velocity
+dead-reckoning pose
+```
+
+Then compare encoder movement against RTK movement.
+
+---
+
+### Phase 7 — Localization
+
+Combine:
+
+```text
+RTK
+IMU
+encoders
+```
+
+into one:
+
+```text
+Pose
+```
+
+At this point the rover should be able to move in the world coordinate system without any obstacle planning.
+
+---
+
+### Phase 8 — RPLIDAR
+
+Implement:
+
+```text
+RPLIDAR driver
+scan representation
+sensor-frame geometry
+robot-frame transformation
+```
+
+First simply visualise the scan.
+
+Do not immediately feed it into planning.
+
+---
+
+### Phase 9 — Static map
+
+Implement:
+
+```text
+static map loading
+world → grid
+grid → world
+cell access
+```
+
+Then display:
+
+```text
+static map + rover pose
+```
+
+in the visualiser.
+
+---
+
+### Phase 10 — Local costmap
+
+Implement:
+
+```text
+RPLIDAR
+   ↓
+ray processing
+   ↓
+local costmap
+```
+
+Then display:
+
+```text
+lidar
++
+local costmap
++
+rover footprint
+```
+
+before attempting autonomous movement.
+
+---
+
+### Phase 11 — Learned obstacle map
+
+Implement:
+
+```text
+ray tracing
+occupied counters
+clear counters
+promotion/removal
+persistence
+save/load
+```
+
+Verify it independently.
+
+Especially verify occlusion behaviour.
+
+---
+
+### Phase 12 — A*
+
+Implement:
+
+```text
+grid neighbour generation
+octile heuristic
+A*
+path reconstruction
+path smoothing if necessary
+```
+
+Initially test against artificially generated maps.
+
+Do not test A* first on the physical rover.
+
+---
+
+### Phase 13 — Global navigation
+
+Connect:
+
+```text
+GPS goal
+ ↓
+ENU
+ ↓
+global map
+ ↓
+A*
+ ↓
+global path
+```
+
+Verify that GPS waypoints produce sensible paths.
+
+---
+
+### Phase 14 — Local planner
+
+Connect:
+
+```text
+global path
++
+local costmap
++
+pose
++
+footprint
+```
+
+and generate:
+
+```text
+linear velocity
+angular velocity
+```
+
+First test at very low speed.
+
+---
+
+### Phase 15 — Safety
+
+Implement and verify:
+
+```text
+front collision sensor
+sensor timeout detection
+command timeout
+local planner safety limits
+state machine
+FAULT_STOP
+```
+
+Safety should be tested by deliberately disconnecting sensors.
+
+---
+
+### Phase 16 — Return-to-base
+
+Implement:
+
+```text
+RETURN_TO_BASE
+```
+
+using the global map/GPS route.
+
+Test:
+
+```text
+normal operation
+RPLIDAR failure
+RTK loss
+both failures
+```
+
+The required behaviour should be deterministic.
+
+---
+
+# 31. Development Milestones
+
+A useful progression is:
+
+### Milestone 1
+
+```text
+Program runs
+Threads run
+Debug visualiser works
+```
+
+### Milestone 2
+
+```text
+ESP32 ↔ PC communication works
+```
+
+### Milestone 3
+
+```text
+GPS + IMU + encoders produce pose
+```
+
+### Milestone 4
+
+```text
+RPLIDAR visible in visualiser
+```
+
+### Milestone 5
+
+```text
+Static map displayed with rover
+```
+
+### Milestone 6
+
+```text
+Local costmap works
+```
+
+### Milestone 7
+
+```text
+Learned obstacle map works
+```
+
+### Milestone 8
+
+```text
+A* produces valid routes
+```
+
+### Milestone 9
+
+```text
+Local planner produces safe commands
+```
+
+### Milestone 10
+
+```text
+Closed-loop autonomous navigation
+```
+
+### Milestone 11
+
+```text
+Fault injection and recovery
+```
+
+---
+
+# 32. What Should Not Be Done Yet
+
+Avoid these initially:
+
+- ROS2
+- DDS
+- microservices
+- multiple navigation processes
+- distributed message buses
+- database-backed maps
+- sophisticated SLAM
+- GPU acceleration
+- multi-robot architecture
+- cloud connectivity
+- complicated plugin architecture
+
+None of those solve a current requirement.
+
+The initial system can be:
+
+```text
+1 executable
+~15–25 logical modules
+multiple threads
+shared state
+mutexes
+CMake
+standard C++
+```
+
+That is sufficient.
+
+---
+
+# 33. Final Runtime Architecture
+
+Once complete, the runtime should conceptually look like:
+
+```text
+                         rover_app
+                            │
+             ┌──────────────┴──────────────┐
+             │        Shared State         │
+             └──────────────┬──────────────┘
+                            │
+      ┌─────────┬───────────┼───────────┬─────────┐
+      │         │           │           │         │
+     GPS       IMU       Encoders     RPLIDAR   Debug
+      │         │           │           │
+      └─────────┴───────────┼───────────┘
+                            │
+                       Localization
+                            │
+                ┌───────────┴───────────┐
+                │                       │
+           Global Maps              Local Map
+                │                       │
+                ▼                       ▼
+           Global A*              Local Planner
+                │                       │
+                └───────────┬───────────┘
+                            ▼
+                       Safety Manager
+                            │
+                            ▼
+                      Motor Interface
+                            │
+                            ▼
+                          ESP32
+                            │
+                       ┌────┴────┐
+                       │         │
+                    Motors    Encoders
+```
+
+## Recommended first implementation
+
+Start with exactly these five pieces:
+
+```text
+CMakeLists.txt
+src/main.cpp
+include/rover/state/rover_state.hpp
+include/rover/debug/debug_server.hpp
+src/debug/debug_server.cpp
+```
+
+Then add the sensor interfaces one at a time.
+
+The key architectural decision is to **get the shared-state/thread/debug framework stable before implementing navigation algorithms**. Once that foundation works, GPS, IMU, lidar, maps and planners can be added without changing the fundamental architecture.

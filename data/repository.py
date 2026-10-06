@@ -122,3 +122,23 @@ def get_derived_state_asset(asset_id):
 
 def get_derived_state_all():
     return fetchall("SELECT * FROM derived_state")
+
+# ----------------------------
+# ACTUATOR ACKS (last_ack_ts, ack_status) — MCU-sourced, written by
+# ingestion same as any other telemetry. NOT rolled up by aggregator.py.
+# ----------------------------
+def upsert_actuator_ack(asset_id, metric, value, confidence, ts):
+    execute("""
+        INSERT INTO actuator_ack (asset_id, metric, value, confidence, ts)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(asset_id, metric) DO UPDATE SET
+            value=excluded.value,
+            confidence=excluded.confidence,
+            ts=excluded.ts
+    """, (asset_id, metric, value, confidence, ts))
+
+def get_actuator_ack_asset(asset_id):
+    return fetchall("SELECT * FROM actuator_ack WHERE asset_id = ?", (asset_id,))
+
+def get_actuator_ack_all():
+    return fetchall("SELECT * FROM actuator_ack")

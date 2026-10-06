@@ -1,0 +1,19 @@
+scada:
+  icon_scale: 2
+
+  text:
+    size: 30
+
+  actuator:
+    width: 60
+    height: 60
+
+  pipes:
+    width: 8
+
+  layout:
+    human_y: 250
+    weather_y: 600
+    bore_y: 800
+    tank_y: 1500
+    zone_y: 2400

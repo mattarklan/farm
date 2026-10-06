@@ -23,6 +23,7 @@ class Asset:
         self.name = data.get("name", self.id)
         self.type = data.get("type")
         self.metrics = data.get("metrics", [])
+        self.actuators = data.get("actuators", [])  # NEW -- primary ("on") action_types this asset has; safe/off state derived via that action_type's stop_action_type in action_types.yaml. Empty until config/loader.py's real registry data includes it.
         self.dependencies = data.get("dependencies", [])
         self.downstream = data.get("downstream", [])
         self.metadata = data.get("metadata", {})

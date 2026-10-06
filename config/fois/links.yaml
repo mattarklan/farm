@@ -1,0 +1,77 @@
+# Scrape targets for fois's price fetchers.
+#
+# This is the file to edit when you find a new supplier: add an entry
+# under the right domain/item and fois will start trying it on the next
+# fetch cycle. No code changes needed - as long as the page has a plain
+# price on it somewhere (see "parser" below), fois's generic extractor
+# has a decent shot at finding it.
+#
+# Every entry here is tried every fetch cycle, and every price that comes
+# back is kept - these are different suppliers, not fallbacks for each
+# other, so one succeeding doesn't stop the others from being tried.
+#
+# Fields:
+#   name   - short id, becomes the "source"/supplier name on the Reading
+#   url    - the product page to fetch
+#   unit   - whatever unit the price is for (e.g. "25L_bag") - fois
+#            doesn't normalise units across suppliers, so keep this
+#            accurate so core/GUI can compare like-for-like
+#   parser - "auto" tries a few common price patterns (JSON-LD, meta
+#            price tags, WooCommerce/Shopify-style price blocks, then a
+#            last-resort "$X.XX on the page" scan). Works for plenty of
+#            simple sites but isn't guaranteed - check the fetch logs
+#            after adding a new one to confirm it actually found a price.
+#   note   - free text, e.g. distance/delivery caveats
+
+fertilizer_price:
+  chicken_manure:
+    - name: bunnings
+      url: https://www.bunnings.com.au/fine-farms-25l-poultry-manure_p3010195
+      unit: 25L_bag
+      parser: auto
+      note: "National chain, store in Midland. Online price is likely the same regardless of store."
+    - name: poo4you
+      url: https://poo4you.com.au/Chicken-Manure-40-Litre-Bag-p599080700
+      unit: 40L_bag
+      parser: auto
+      note: "Greenwood, WA - outside the Midland-Moora corridor (~45 min from Bindoon). Kept as a price reference, not a pickup/delivery recommendation."
+
+mulch_price:
+  mulch:
+    - name: bunnings
+      url: https://www.bunnings.com.au/garden-basics-50l-pine-bark-mulch_p0586138
+      unit: 50L_bag
+      parser: auto
+      note: "National chain, store in Midland."
+    - name: poo4you_lupin_mulch
+      url: https://poo4you.com.au/store/Lupin-Mulch-45L-Bag-p599088266
+      unit: 45L_bag
+      parser: auto
+      note: "Greenwood, WA - outside the corridor, kept as a price reference. Lupin mulch specifically (lupin + chicken manure blend)."
+
+seed_price:
+  white_lupin_seed: []
+  # No scrapable source found. White lupin seed is a bulk agricultural
+  # input - the real market (Elders, Landmark, Seednet) is quote/broker
+  # based, with no public per-unit price online (Seednet only publishes
+  # per-tonne end-point royalty rates, not seed prices). Add a link here
+  # if you come across an actual retail seed page with a visible price.
+
+# Bulk density estimates (kg per litre), used ONLY to compute an
+# approximate price-per-tonne for products priced by volume (litre bags).
+# price_per_m3 doesn't need any of this and is exact - use these tonne
+# figures as a rough guide, not a precise one. Bulk density varies with
+# moisture and compaction, and these are generic published figures for
+# the product category, not measurements of the specific bagged product
+# fois is scraping.
+densities:
+  fertilizer_price:
+    # Composted/bagged poultry manure, ~450 kg/m3 per a cited bulk-density
+    # analysis (ScienceDirect, "Poultry Manure" topic overview).
+    chicken_manure: 0.45
+  mulch_price:
+    # Pine bark mulch, ~300-350 kg/m3 per landscape supply sources
+    # (landscapecalc.com.au, mainlandaggregates.co.uk). Used 0.30 as a
+    # conservative mid-estimate; bark mulch density varies more than
+    # manure's does, so treat this figure with a bit more skepticism.
+    mulch: 0.30

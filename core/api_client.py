@@ -1,4 +1,3 @@
-#api_client
 """
 Thin HTTP client for the ingestion project's FastAPI service.
 

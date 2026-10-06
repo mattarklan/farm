@@ -25,7 +25,9 @@ class ConstraintEngine:
                 blocked.append({
                     "action": action,
                     "reason": decision["reason"],
-                    "signal": decision.get("signal")
+                    "signal": decision.get("signal"),
+                    "triggering_sensor": decision.get("triggering_sensor"),
+                    "triggering_value": decision.get("triggering_value"),
                 })
 
             elif decision["status"] == "delay":
@@ -51,6 +53,10 @@ class ConstraintEngine:
             if rule["action_type"] != action.action_type:
                 continue
 
+            rule_target = rule.get("target")
+            if rule_target is not None and rule_target != action.target:
+                continue  # this constraint is scoped to a specific target -- doesn't apply here
+
             result = self._evaluate_rule(rule, action, state, derived)
 
             if result["status"] != "allow":
@@ -68,7 +74,7 @@ class ConstraintEngine:
         # -----------------------------
         # RAW STATE CHECKS
         # -----------------------------
-        raw_violation = self._check_raw(condition, state, action)
+        raw_violation, raw_sensor_id, raw_value = self._check_raw(condition, state, action)
 
         # -----------------------------
         # DERIVED CHECKS
@@ -102,7 +108,9 @@ class ConstraintEngine:
             return {
                 "status": "block",
                 "reason": rule.get("reason", "Raw constraint violated"),
-                "signal": "raw"
+                "signal": "raw",
+                "triggering_sensor": raw_sensor_id,
+                "triggering_value": raw_value,
             }
 
         if risk_score >= 0.6 and mode == "delay":
@@ -129,21 +137,27 @@ class ConstraintEngine:
         "{target}" in the sensor name is substituted with the action's
         own target, so one constraint can apply to every asset a given
         action_type might run against instead of one hardcoded sensor_id.
+
+        Returns (violated, sensor_id, value) -- the sensor_id/value are
+        surfaced so a block decision can carry the actual reading that
+        caused it (e.g. the real battery voltage), not just whatever
+        static string is in the rule's `reason`.
         """
         if "sensor" not in condition:
-            return False  # not a raw-sensor condition (e.g. a derived-only or risk-only rule)
+            return False, None, None  # not a raw-sensor condition (e.g. a derived-only or risk-only rule)
 
         sensor_id = condition["sensor"]
         if "{target}" in sensor_id:
             if not action.target:
-                return False
+                return False, None, None
             sensor_id = sensor_id.replace("{target}", action.target)
 
         sensor_state = state["sensors"].get(sensor_id)
         if sensor_state is None:
-            return False
+            return False, None, None
 
-        return self._compare(sensor_state.value, condition.get("op", "lt"), condition["value"])
+        violated = self._compare(sensor_state.value, condition.get("op", "lt"), condition["value"])
+        return violated, sensor_id, sensor_state.value
 
     @staticmethod
     def _compare(left, op, right):

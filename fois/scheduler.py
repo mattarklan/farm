@@ -1,100 +1,75 @@
-"""
-fois/scheduler.py
-
-Runs the FOIS engine on a configurable interval.
-
-This is separate from the operator's pipeline scheduler.
-The investor runs on a much slower cadence — daily or weekly is plenty.
-The operator runs every 60 seconds reacting to sensor events.
-
-Usage:
-    python -m fois.scheduler
-
-Or import and call directly:
-    from fois.scheduler import FoisScheduler
-    scheduler = FoisScheduler(db_path="farm.db", interval_hours=24)
-    scheduler.run()
+"""Runs each domain's fetchers, in priority order, falling back to the
+next source on failure. Meant to be invoked periodically (e.g. daily cron,
+or a simple loop in run_fois.py) - fois itself doesn't need to be "always
+running" for scheduling purposes, since core/GUI read from the store via
+the API regardless of when the last fetch happened (is_stale tells them
+whether it's current enough to trust).
 """
 
 import logging
-import time
-from datetime import datetime, timezone
 
-from fois.engine import FoisEngine
+from .config import Config
+from .store import Store
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger("fois.scheduler")
 
 
-class FoisScheduler:
+def run_domain(config: Config, store: Store, domain: str) -> int:
+    """Run a domain's sources according to its configured mode.
 
-    def __init__(self, db_path: str = "farm.db", interval_hours: float = 24,
-                 top_n: int = 3, run_once: bool = False):
-        self.db_path = db_path
-        self.interval_seconds = interval_hours * 3600
-        self.top_n = top_n
-        self.run_once = run_once
+    'fallback' (default, e.g. weather): sources are redundant alternatives
+    for the same fact - try in priority order, stop per-region at first
+    success.
 
-    def run(self):
-        logger.info(
-            f"FOIS scheduler started — interval: {self.interval_seconds/3600:.1f}h, "
-            f"top_n: {self.top_n}"
-        )
+    'all' (e.g. multi-supplier prices): sources are genuinely different
+    values, not alternatives - every source is tried every time, and every
+    successful reading is kept, regardless of what other sources returned.
+    """
+    mode = config.mode_for(domain)
+    total_inserted = 0
 
-        while True:
-            self._run_cycle()
+    if mode == "all":
+        for source_cfg in config.sources_for(domain):
+            fetcher_cls = config.load_fetcher_class(source_cfg)
+            fetcher = fetcher_cls()
+            for region_name, region_cfg in config.regions.items():
+                readings = fetcher.run(source_cfg, region_name, region_cfg)
+                if readings:
+                    total_inserted += store.insert_readings(readings)
+        return total_inserted
 
-            if self.run_once:
-                logger.info("FOIS scheduler: run_once=True, exiting")
-                break
+    # mode == "fallback"
+    succeeded_regions: set[str] = set()
+    for source_cfg in config.sources_for(domain):
+        fetcher_cls = config.load_fetcher_class(source_cfg)
+        fetcher = fetcher_cls()
 
-            next_run = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            logger.info(
-                f"FOIS scheduler: next run in {self.interval_seconds/3600:.1f}h "
-                f"(sleeping from {next_run})"
-            )
-            time.sleep(self.interval_seconds)
+        for region_name, region_cfg in config.regions.items():
+            if region_name in succeeded_regions:
+                continue
 
-    def _run_cycle(self):
-        started = datetime.now(timezone.utc)
-        logger.info(f"FOIS: cycle starting at {started.isoformat()}")
+            readings = fetcher.run(source_cfg, region_name, region_cfg)
+            if readings:
+                total_inserted += store.insert_readings(readings)
+                succeeded_regions.add(region_name)
 
-        try:
-            engine = FoisEngine(db_path=self.db_path, top_n=self.top_n)
-            opportunities = engine.run()
+    return total_inserted
 
-            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
-            logger.info(
-                f"FOIS: cycle complete in {elapsed:.1f}s — "
-                f"{len(opportunities)} opportunity/ies written to pending/"
-            )
 
-        except Exception as e:
-            logger.error(f"FOIS: cycle failed: {e}", exc_info=True)
-            # Don't crash the scheduler — log and wait for next cycle
+def run_all(config: Config | None = None, store: Store | None = None) -> dict[str, int]:
+    """Run every configured domain once. Returns a dict of domain -> rows inserted."""
+    config = config or Config()
+    store = store or Store()
+
+    results = {}
+    for domain in config.domain_names():
+        log.info("running domain=%s", domain)
+        results[domain] = run_domain(config, store, domain)
+    return results
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    import argparse
-    parser = argparse.ArgumentParser(description="FOIS Scheduler")
-    parser.add_argument("--db", default="farm.db", help="Path to farm SQLite DB")
-    parser.add_argument("--interval-hours", type=float, default=24.0,
-                        help="Hours between FOIS runs (default: 24)")
-    parser.add_argument("--top-n", type=int, default=3,
-                        help="Max proposals to generate per run (default: 3)")
-    parser.add_argument("--once", action="store_true",
-                        help="Run once and exit (useful for testing)")
-    args = parser.parse_args()
-
-    scheduler = FoisScheduler(
-        db_path=args.db,
-        interval_hours=args.interval_hours,
-        top_n=args.top_n,
-        run_once=args.once,
-    )
-    scheduler.run()
+    logging.basicConfig(level=logging.INFO)
+    outcome = run_all()
+    for domain, count in outcome.items():
+        print(f"{domain}: {count} readings inserted")

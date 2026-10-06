@@ -1,0 +1,187 @@
+# rules.yaml
+#
+# A rule becomes a "goal" (persists across cycles, has a stop condition)
+# in any of three ways -- see goal_engine.infer_is_goal():
+#
+#   1. Explicit `until` list.
+#   2. No `until`, but the action has a `duration_minutes` param --
+#      auto-derived into a single, primary, timer-only stop. This is
+#      what lets governance's schema (no "until" concept at all) drive
+#      goals without changing that schema.
+#   3. `trigger: {type: schedule, start_time, end_time}` instead of an
+#      event trigger -- runs on wall-clock time, repeats daily.
+#
+# Anything else is an instant, one-shot rule (RuleEngine).
+#
+# STOP CONDITIONS: mark one `until` entry `primary: true`. Stopping via
+# the primary condition is normal. Stopping via any OTHER condition
+# first means the primary one was never satisfied -- flagged
+# automatically (severity bumped, data.expected=false on GOAL_STOPPED).
+#
+# Templates: "$event" -> the triggering zone/sensor. "$asset.<field>"
+# -> that field from the target's registry metadata (e.g. crops.yaml).
+
+rules:
+
+  - id: water_growing_zone_until_moist
+    trigger:
+      event_type: S1_SOIL_MOISTURE_LOW   # no zone_id -> applies to every zone
+    start_action:
+      type: OPEN_VALVE
+      target: "$event"
+      severity: 2
+      params:
+        flow_rate_lpm: 10
+    stop_action:
+      type: CLOSE_VALVE
+      target: "$event"
+      severity: 3
+    until:
+      - type: sensor            # PRIMARY: moisture actually reached target
+        sensor: "$event"
+        op: gte
+        value: "$asset.target_soil_moisture"
+        primary: true
+      - type: timer              # fallback: shouldn't take this long -- flag it if it does
+        max_duration_minutes: 120
+      - type: constraint          # fallback: safety net
+        sensor: "$event"
+        min: 0.0
+        max: 1.0
+
+  # Once-a-week override for a specific zone -- same shape, scoped by zone_id + min_interval_days
+  - id: water_zone_tomato_a_weekly
+    trigger:
+      event_type: S1_SOIL_MOISTURE_LOW
+      zone_id: zone_tomato_a
+    start_action:
+      type: OPEN_VALVE
+      target: zone_tomato_a
+      severity: 2
+      params:
+        flow_rate_lpm: 8
+    stop_action:
+      type: CLOSE_VALVE
+      target: zone_tomato_a
+      severity: 3
+    until:
+      - type: sensor
+        sensor: "$event"
+        op: gte
+        value: "$asset.target_soil_moisture"
+        primary: true
+      - type: timer
+        max_duration_minutes: 90
+    min_interval_days: 7
+
+  # Grow lights, dusk to dawn, repeats daily. Reaching end_time is the
+  # NORMAL way this stops -- not a fallback, so no false alarm every
+  # single morning.
+  - id: grow_lights_zone_a
+    trigger:
+      type: schedule
+      start_time: "18:00"
+      end_time: "06:00"
+    start_action:
+      type: OPEN_VALVE            # stand-in action type until a real LIGHT_ON exists in executor.py
+      target: light_zone_a
+      severity: 4
+      params: {}
+    stop_action:
+      type: CLOSE_VALVE
+      target: light_zone_a
+      severity: 4
+    until:
+      - type: schedule_end
+        primary: true
+
+  # Example FOIS-style proposal: governance's existing schema shape
+  # (no "until", no "kind") -- auto-derived into a 20-minute timer goal.
+  - id: fois_proposal_extra_water_zone_capsicum_a
+    source: fois
+    proposal_id: prop_0042
+    enabled: true
+    expires_at: "2026-08-01T00:00:00"
+    trigger:
+      event_type: MANUAL_WATER_REQUEST
+      zone_id: zone_capsicum_a
+    actions:
+      - type: open_valve
+        target: zone_capsicum_a
+        severity: 2
+        params:
+          duration_minutes: 20
+          flow_rate_lpm: 5
+
+  - id: load_shed_on_low_battery
+    trigger:
+      event_type: E1_BATTERY_LOW
+    start_action:
+      type: LOAD_SHEDDING
+      target: battery_1
+      severity: 1
+      params:
+        reason: battery_low
+    stop_action:
+      type: RESTORE_LOAD
+      target: battery_1
+      severity: 3
+    until:
+      - type: sensor           # PRIMARY: battery actually recovered
+        sensor: battery_1_soc
+        op: gte
+        value: 40               # hysteresis above E1_BATTERY_LOW's <20 trigger -- avoid flapping on/off right at the line
+        primary: true
+      - type: fault_event       # fallback: LOAD_SHEDDING itself never got acked -- retry per its fallback above
+        event_types: [ACTION_NO_ACK]
+    priority: 20
+    # Deliberately NO timer condition -- this is the protective action.
+    # A blind expiry could restore load while the battery's still
+    # critical. The sensor condition already fails safe: if battery_1_soc's
+    # confidence drops to 0, the "sensor" check is skipped (not treated
+    # as met), so the goal just keeps shedding rather than guessing.
+
+  # Bore_1 fills tank_1. Stays well clear of constraints.yaml's hard
+  # block (tank_1_level >= 50) by targeting 45 as ITS OWN target --
+  # the hard constraint is a backstop, not the intended operating point
+  # (same "belt and suspenders" pattern as the battery voltage+SOC
+  # constraints). Trigger event TK1_TANK_LEVEL_LOW does not exist in
+  # event_rules.yaml yet -- NEEDS ADDING there (not available to edit
+  # here), e.g. {sensor_suffix: _level, condition: {op: lt, value: 30}}
+  # on tank_1.
+  - id: fill_tank_1_from_bore
+    trigger:
+      event_type: TK1_TANK_LEVEL_LOW
+      asset_id: tank_1
+    start_action:
+      type: START_PUMP
+      target: bore_1
+      severity: 2
+      params: {}
+    stop_action:
+      type: STOP_PUMP
+      target: bore_1
+      severity: 3
+    until:
+      - type: sensor            # PRIMARY: tank_1 reached its (safe, sub-50%) fill target
+        sensor: tank_1_level
+        op: gte
+        value: 45
+        primary: true
+      - type: timer              # fallback: filling a tank shouldn't take this long -- flag it if it does
+        max_duration_minutes: 90
+      - type: fault_event         # fallback: no ack, blocked (e.g. overflow constraint), or an anomaly-confirmed bore fault
+        event_types:
+          - ACTION_NO_ACK
+          - ACTION_BLOCKED
+          - BORE_COMMANDED_NO_FLOW
+          - BORE_NO_FLOW
+          - BORE_NO_POWER_DRAW
+    # No rule-level `fallback` -- there's no second bore to retarget to,
+    # so this falls through to START_PUMP's own action_types.yaml
+    # default (retry after 300s). MCU-owned dry-well cutoff (see
+    # anomaly_rules.yaml note) is a SEPARATE signal from all of the
+    # above -- once that field exists, it should very likely be its own
+    # fault_event entry here too, probably with a longer retry delay
+    # than the generic 300s default, so core isn't hammering a well
+    # that's just proven itself dry.

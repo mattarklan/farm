@@ -1,0 +1,64 @@
+# fois domain configuration.
+#
+# This file wires each domain to its fetcher class and sets timing/
+# staleness. It's the "how does fois run" file - rarely touched.
+#
+# For price domains, the actual suppliers to scrape are NOT listed here -
+# see config/fois/links.yaml, which is the file to edit when adding a
+# new supplier (just a name + URL, no code or wiring changes needed).
+#
+# regions: named regions used across domains, so fetchers/config don't
+#   repeat coordinates everywhere.
+
+regions:
+  home_farm:
+    label: "Home Farm"
+    # BOM geohash for the forecast location. Find yours via:
+    # https://api.weather.bom.gov.au/v1/locations?search=<suburb>
+    bom_geohash: "qd6w81"
+
+domains:
+  weather:
+    refresh: daily
+    staleness_warn_after: 30h   # one BOM fetch/day + buffer
+    mode: fallback   # BOM primary; add a second source here as a fallback if needed
+    sources:
+      - name: bom
+        module: fois.fetchers.weather
+        class: BomWeatherFetcher
+
+  veg_price:
+    refresh: daily
+    staleness_warn_after: 48h
+    mode: fallback
+    sources:
+      - name: veg
+        module: fois.fetchers.veg_prices
+        class: VegPriceFetcher
+
+  fertilizer_price:
+    refresh: daily
+    staleness_warn_after: 48h
+    mode: all   # scrapes every link in links.yaml under fertilizer_price, keeps every price
+    sources:
+      - name: scrape
+        module: fois.fetchers.fertilizer_prices
+        class: FertilizerPriceFetcher
+
+  mulch_price:
+    refresh: daily
+    staleness_warn_after: 48h
+    mode: all
+    sources:
+      - name: scrape
+        module: fois.fetchers.mulch_prices
+        class: MulchPriceFetcher
+
+  seed_price:
+    refresh: daily
+    staleness_warn_after: 48h
+    mode: all
+    sources:
+      - name: scrape
+        module: fois.fetchers.seed_prices
+        class: SeedPriceFetcher

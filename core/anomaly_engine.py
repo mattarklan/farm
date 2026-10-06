@@ -36,13 +36,15 @@ from core.severity import Severity
 
 
 class AnomalyEngine:
-    def __init__(self, rules_config: dict, goal_engine=None, registry=None, incident_recorder=None):
+    def __init__(self, rules_config: dict, goal_engine=None, registry=None, incident_recorder=None, supply_engine=None):
         self.rules = rules_config.get("rules", [])
         self.goal_engine = goal_engine        # needed only for commanded_vs_sensor rules
         self.registry = registry              # needed only for geofence rules ($asset.<field> center)
         self.incident_recorder = incident_recorder  # needed only for rules with record_sensors
+        self.supply_engine = supply_engine    # needed only for actuator_fault_matrix rules -- commanded-state provider, same role goal_engine plays for commanded_vs_sensor
         self._mismatch_since: dict[str, datetime] = {}
         self._pending_effect_checks: dict[str, dict] = {}  # rule_id -> {baseline, triggered_at}
+        self._fault_matrix_since: dict[str, datetime] = {}  # f"{rule_id}:{outcome}" -> when THAT specific outcome started -- separate from _mismatch_since since this check has 4 possible outcomes, not one bool
 
     def process(self, state: dict, derived: dict) -> list:
         events = []
@@ -51,6 +53,12 @@ class AnomalyEngine:
 
             if kind == "action_effect_check":
                 event = self._check_action_effect(rule, state)
+                if event:
+                    events.append(event)
+                continue
+
+            if kind == "actuator_fault_matrix":
+                event = self._check_actuator_fault_matrix(rule, state, derived)
                 if event:
                     events.append(event)
                 continue
@@ -204,6 +212,85 @@ class AnomalyEngine:
         if net_flow < -flow_deadband and level_slope > slope_deadband:
             return True   # net outflow, but level is actually rising
         return False
+
+    # -------------------------------------------------
+    # RULE TYPE: actuator_fault_matrix
+    # -------------------------------------------------
+    def _check_actuator_fault_matrix(self, rule, state, derived):
+        """
+        level moving | flow moving | commanded | diagnosis
+        -------------+-------------+-----------+-------------------------
+        no           | no          | ON        | TANK_CLOGGED
+        yes          | no          | ON        | FLOW_SENSOR_FAULTY
+        no           | yes         | ON        | LEVEL_SENSOR_SUSPECT
+        yes          | yes         | OFF       | TANK_LEAK
+        anything else (including ON with both moving consistently, or
+        OFF with neither moving) -- normal, no event.
+
+        `commanded_state_provider` names which held reference to query
+        (currently only "supply_engine" is wired up -- goal_engine could
+        work too via the same get_active_action_type() interface, once
+        something commands a target this check would apply to via goal_engine
+        instead, e.g. zone valves once zones have their own flow sensors).
+        Per-outcome sustained_seconds timing, not the shared
+        _mismatch_since (this has 4 possible outcomes per rule, not one
+        bool) -- avoids noise on brief readings same as every other
+        sustained check in this file.
+        """
+        provider = getattr(self, rule.get("commanded_state_provider", "supply_engine"), None)
+        if provider is None:
+            return None
+
+        level = state["sensors"].get(rule["level_sensor"])
+        flow = state["sensors"].get(rule["flow_sensor"])
+        if level is None or flow is None or level.confidence <= 0 or flow.confidence <= 0:
+            return None  # don't judge off an untrusted or missing reading
+
+        commanded_on = provider.get_active_action_type(rule["commanded_target"]) == rule["commanded_action_type"]
+        level_slope = derived.get(rule["level_sensor"], {}).get("slope", 0.0)
+        level_moving = abs(level_slope) > rule.get("level_slope_deadband", 0.001)
+        flow_moving = flow.value > rule.get("flow_deadband", 0.5)
+
+        outcome = None
+        if commanded_on and not level_moving and not flow_moving:
+            outcome = ("TANK_CLOGGED", Severity.URGENT)
+        elif commanded_on and level_moving and not flow_moving:
+            outcome = ("FLOW_SENSOR_FAULTY", Severity.REVIEW)
+        elif commanded_on and not level_moving and flow_moving:
+            outcome = ("LEVEL_SENSOR_SUSPECT", Severity.REVIEW)
+        elif not commanded_on and level_moving and flow_moving:
+            outcome = ("TANK_LEAK", Severity.CRITICAL)
+
+        if outcome is None:
+            # clear any in-progress timers for this rule -- condition's
+            # not present right now, so nothing should be "sustained"
+            for key in [k for k in self._fault_matrix_since if k.startswith(f"{rule['id']}:")]:
+                del self._fault_matrix_since[key]
+            return None
+
+        event_type, severity = outcome
+        key = f"{rule['id']}:{event_type}"
+        since = self._fault_matrix_since.setdefault(key, state["timestamp"])
+        sustained = rule.get("sustained_seconds", 300)
+        if (state["timestamp"] - since).total_seconds() < sustained:
+            return None  # not sustained long enough yet
+
+        return Event(
+            id=str(uuid.uuid4()),
+            event_type=event_type,
+            asset_id=rule.get("asset", rule["commanded_target"]),
+            sensor_id=rule["level_sensor"],
+            severity=severity,
+            confidence=1.0,
+            timestamp=state["timestamp"],
+            data={
+                "level": level.value,
+                "flow": flow.value,
+                "level_slope": level_slope,
+                "commanded_on": commanded_on,
+                "rule_id": rule["id"],
+            },
+        )
 
     # -------------------------------------------------
     # RULE TYPE: sensor_pair

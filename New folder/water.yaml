@@ -1,0 +1,136 @@
+water:
+  tank_1:
+    id: tank_1
+    name: Main Storage Tank 1
+    type: tank
+    capacity_l: 27000
+    elevation_m: 12
+    sensors:
+      - tank_1_level
+      - tank_1_flow_out
+    dependencies:
+      - bore_1
+      - bore_2
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      material: poly
+      installation_year: 2018
+      gps: [-31.95032, 115.86023]
+
+  tank_2:
+    id: tank_2
+    name: Tank 2
+    type: tank
+    capacity_l: 27000
+    elevation_m: 11
+    sensors:
+      - tank_2_level
+      - tank_2_flow_out
+    dependencies:
+      - bore_1
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      gps: [-31.950328, 115.86022]
+
+  tank_3:
+    id: tank_3
+    name: Tank 3
+    type: tank
+    capacity_l: 27000
+    elevation_m: 10
+    sensors:
+      - tank_3_level
+      - tank_3_flow_out
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      gps: [-31.950336, 115.86021]
+
+  tank_4:
+    id: tank_4
+    name: Tank 4
+    type: tank
+    capacity_l: 27000
+    elevation_m: 10
+    sensors:
+      - tank_4_level
+      - tank_4_flow_out
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      gps: [-31.950315, 115.86025]
+
+  tank_5:
+    id: tank_5
+    name: Tank 5
+    type: tank
+    capacity_l: 27000
+    elevation_m: 9
+    sensors:
+      - tank_5_level
+      - tank_5_flow_out
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      gps: [-31.950366, 115.860275]
+
+  tank_6:
+    id: tank_6
+    name: Tank 6
+    type: tank
+    capacity_l: 27000
+    elevation_m: 9
+    sensors:
+      - tank_6_level
+      - tank_6_flow_out
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      gps: [-31.950844, 115.86052]
+
+  header_tank_1:
+    id: header_tank_1
+    name: Header Tank Zone 1
+    type: tank
+    capacity_l: 2000
+    elevation_m: 6
+    sensors:
+      - header_tank_1_level
+      - header_tank_1_flow_out
+    dependencies:
+      - tank_1
+      - tank_2
+    actuators:
+      - OPEN_VALVE
+    metadata:
+      gps: [-31.950331, 115.860281]
+
+  bore_1:
+    id: bore_1
+    name: Bore 1
+    type: bore
+    sensors:
+      - bore_1_flow
+      - bore_1_current
+    actuators:
+      - START_PUMP
+    metadata:
+      depth_m: 18
+      gps: [-31.950304, 115.860304]
+
+  bore_2:
+    id: bore_2
+    name: Bore 2
+    type: bore
+    sensors:
+      - bore_2_flow
+      - bore_2_current
+    actuators:
+      - START_PUMP
+    metadata:
+      depth_m: 22
+      gps: [-31.950841, 115.86053]
+
+

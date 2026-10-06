@@ -1,0 +1,13 @@
+-- Actuator acks (last_ack_ts, ack_status) reported directly by an
+-- actuator's MCU. Kept OUT of raw_telemetry deliberately:
+--   1. ack_status is a string, and it needs to stay one -- core's memo
+--      wants open-ended reason codes, not a fixed enum. Cramming it into
+--      the REAL-typed raw_telemetry column would repeat the same
+--      GPS/vehicle-status type mismatch already flagged twice this
+--      session.
+--   2. Neither field is meant to be hourly/daily rolled up (AVG of a
+--      timestamp or a status string is meaningless), and aggregator.py's
+--      rollup blindly GROUP BYs everything in raw_telemetry.
+-- Still MCU-sourced data though (not core-computed), so it's its own
+-- table rather than reusing derived_state -- ingestion writes this one,
+-- same as any other inbound telemetry; core only ever reads it.

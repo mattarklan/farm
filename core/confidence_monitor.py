@@ -55,7 +55,10 @@ class ConfidenceMonitor:
                     severity=self.severity,
                     confidence=1.0,
                     timestamp=state["timestamp"],
-                    data={"reported_confidence": sensor_state.confidence},
+                    data={
+                        "reported_confidence": sensor_state.confidence,
+                        "temp_still_responsive": self._soil_temp_diagnostic(sensor_id, state, derived),
+                    },
                 ))
                 self._stuck_counters[sensor_id] = 0  # no legit signal -- stuck-check is meaningless here
                 continue
@@ -82,7 +85,11 @@ class ConfidenceMonitor:
                     severity=self.stuck_severity,
                     confidence=1.0,
                     timestamp=state["timestamp"],
-                    data={"stuck_value": sensor_state.value, "cycles": self.stuck_cycles_threshold},
+                    data={
+                        "stuck_value": sensor_state.value,
+                        "cycles": self.stuck_cycles_threshold,
+                        "temp_still_responsive": self._soil_temp_diagnostic(sensor_id, state, derived),
+                    },
                 ))
 
         return events
@@ -93,3 +100,37 @@ class ConfidenceMonitor:
             if asset is not None:
                 return asset.id
         return sensor_id.rsplit("_", 1)[0]
+
+    def _soil_temp_diagnostic(self, sensor_id: str, state: dict, derived: dict):
+        """
+        Diagnostic aid ONLY -- soil temp can't reconstruct a moisture
+        value the way a second flow sensor stands in for tank level, so
+        this never restores trust in the moisture reading itself, just
+        adds context for whoever's looking at the event. If the
+        moisture probe's reading is stuck/dead but its sibling
+        soil_temperature sensor still shows normal variation, that's
+        evidence the probe's power/wiring is fine and only the
+        moisture element itself has failed -- versus temp ALSO being
+        flat, which points to a broader (wiring/power) failure instead.
+
+        Returns:
+            True  -- temp sensor still varying normally
+            False -- temp sensor is ALSO flat/stuck
+            None  -- no sibling temp sensor, or its own reading isn't
+                     trustworthy enough to judge -- don't guess
+
+        GUESSED sensor naming: "_soil_moisture" -> "_soil_temperature"
+        -- confirm this matches the real ingestion metric name before
+        relying on it; if it's wrong this just silently always returns
+        None (missing sibling), not a wrong answer.
+        """
+        if not sensor_id.endswith("_soil_moisture"):
+            return None
+        temp_sensor_id = sensor_id[: -len("_soil_moisture")] + "_soil_temperature"
+        temp_state = state["sensors"].get(temp_sensor_id)
+        if temp_state is None or temp_state.confidence <= 0:
+            return None
+        temp_volatility = derived.get(temp_sensor_id, {}).get("volatility")
+        if temp_volatility is None:
+            return None
+        return temp_volatility > 0

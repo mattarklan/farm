@@ -52,6 +52,14 @@ constraints:
     mode: block
     reason: "Insufficient pressure"
 
+# --- Tank overflow ---
+  - id: prevent_tank_1_overflow
+    action_type: START_PUMP
+    target: bore_1
+    condition: {sensor: tank_1_level, op: gte, value: 50}
+    mode: block
+    reason: "tank_1 already above 50% -- running the bore risks overflow"
+
 # --- STILL NOT ADDED -- needs the tank/pump/bore source mapping ---
 #
 # "Don't drain a tank to 0" and "don't run a bore dry" both need to know

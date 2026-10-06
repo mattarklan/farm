@@ -38,6 +38,7 @@ def migrate():
         (2, "002_add_events.sql"),
         (3, "003_add_summaries.sql"),
         (4, "004_add_derived_state.sql"),
+        (5, "005_add_actuator_ack.sql"),
     ]
     for version, file in migrations:
         if current < version:

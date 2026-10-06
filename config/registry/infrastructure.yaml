@@ -6,6 +6,7 @@ weather:
     sensors:
       - weather_1_rain
       - weather_1_wind
+      - weather_1_wind_direction
       - weather_1_temperature
       - weather_1_humidity
     metadata:
@@ -19,4 +20,4 @@ gates:
     sensors:
       - gate_1_open
     metadata:
-      gps: [-31.950252, 115.860320]
+      gps: [-31.950900, 115.860050]

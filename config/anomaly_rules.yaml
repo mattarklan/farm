@@ -5,25 +5,96 @@
 
 rules:
 
-  - id: tank_1_mass_balance
-    type: mass_balance
-    description: "tank_1 level should track flow direction (inflow vs outflow)"
+  - id: tank_1_fault_check
+    type: actuator_fault_matrix
+    description: "tank_1 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred. bore_1 is permanently plumbed to tank_1, but this check no longer needs that -- commanded state now comes directly from supply_engine's own valve command record, real not inferred."
     asset: tank_1
+    commanded_target: tank_1
+    commanded_action_type: OPEN_VALVE
     level_sensor: tank_1_level
-    inflow_sensor: tank_1_flow_in
-    outflow_sensor: tank_1_flow_out
+    flow_sensor: tank_1_flow_out
     flow_deadband: 0.5
-    slope_deadband: 0.001
-    sustained_seconds: 900          # 15 min before flagging -- avoid noise on brief readings
-    event_type: TANK_MASS_BALANCE_MISMATCH
-    severity: 2
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
+
+  - id: tank_2_fault_check
+    type: actuator_fault_matrix
+    description: "tank_2 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred."
+    asset: tank_2
+    commanded_target: tank_2
+    commanded_action_type: OPEN_VALVE
+    level_sensor: tank_2_level
+    flow_sensor: tank_2_flow_out
+    flow_deadband: 0.5
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
+
+  - id: tank_3_fault_check
+    type: actuator_fault_matrix
+    description: "tank_3 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred."
+    asset: tank_3
+    commanded_target: tank_3
+    commanded_action_type: OPEN_VALVE
+    level_sensor: tank_3_level
+    flow_sensor: tank_3_flow_out
+    flow_deadband: 0.5
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
+
+  - id: tank_4_fault_check
+    type: actuator_fault_matrix
+    description: "tank_4 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred."
+    asset: tank_4
+    commanded_target: tank_4
+    commanded_action_type: OPEN_VALVE
+    level_sensor: tank_4_level
+    flow_sensor: tank_4_flow_out
+    flow_deadband: 0.5
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
+
+  - id: tank_5_fault_check
+    type: actuator_fault_matrix
+    description: "tank_5 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred."
+    asset: tank_5
+    commanded_target: tank_5
+    commanded_action_type: OPEN_VALVE
+    level_sensor: tank_5_level
+    flow_sensor: tank_5_flow_out
+    flow_deadband: 0.5
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
+
+  - id: tank_6_fault_check
+    type: actuator_fault_matrix
+    description: "tank_6 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred."
+    asset: tank_6
+    commanded_target: tank_6
+    commanded_action_type: OPEN_VALVE
+    level_sensor: tank_6_level
+    flow_sensor: tank_6_flow_out
+    flow_deadband: 0.5
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
+
+  - id: header_tank_1_fault_check
+    type: actuator_fault_matrix
+    description: "header_tank_1 valve fault diagnosis -- commanded state read from supply_engine (its own tank valve command record), not inferred."
+    asset: header_tank_1
+    commanded_target: header_tank_1
+    commanded_action_type: OPEN_VALVE
+    level_sensor: header_tank_1_level
+    flow_sensor: header_tank_1_flow_out
+    flow_deadband: 0.5
+    level_slope_deadband: 0.001
+    sustained_seconds: 300
 
   - id: bore_1_dry_or_faulty
     type: sensor_pair
-    description: "bore running but no flow -- possibly dry or faulty"
-    condition_sensor: bore_1_status
-    condition_op: eq
-    condition_value: 1
+    description: "bore drawing current (inferred running, no dedicated status sensor exists) but no flow -- possibly dry or faulty"
+    condition_sensor: bore_1_current
+    condition_op: gt
+    condition_value: 0.5   # some current draw = motor running -- same threshold bore_1_power_draw_failed below uses for the same inference
     expect_sensor: bore_1_flow
     expect_op: gt
     expect_value: 0.1
@@ -31,25 +102,62 @@ rules:
     event_type: BORE_NO_FLOW
     severity: 1
 
-  - id: pump_1_running_no_flow
+  - id: bore_1_power_draw_failed
     type: commanded_vs_sensor
-    description: "pump commanded on but its flow sensor shows nothing"
-    commanded_target: pump_1
+    description: >-
+      bore_1 commanded on but power draw sensor shows ~nothing --
+      MCU/wiring/pump failure. CAVEAT still applies until the real ack
+      interface exists (see memo_ingestion_ack_interface.md): a
+      legitimate MCU-reported dry-well refusal will ALSO show ~zero
+      draw, and this rule can't yet tell "dead" apart from "correctly
+      refused" -- once action_confirmation.py's ACTUATOR_COMMAND_REFUSED
+      is real (not just guessed), this should be gated to skip firing
+      when that already explains the zero draw, rather than both firing
+      independently for the same underlying event.
+    commanded_target: bore_1
     commanded_action_type: START_PUMP
-    expect_sensor: pump_1_flow
+    expect_sensor: bore_1_current   # CONFIRMED against water.yaml (was guessed as bore_1_power_draw)
+    expect_op: gt
+    expect_value: 0.5
+    sustained_seconds: 30
+    event_type: BORE_NO_POWER_DRAW
+    severity: 1
+
+  # --- Dry-well detection: owned by the bore's own MCU, not core ---
+  # The MCU is what actually needs to protect the pump, and it needs to
+  # cut power within seconds of detecting a dry well -- core's cycle
+  # (10-60s) is too slow to be the thing making that call safely.
+  #
+  # RESOLVED as a separate field, per your call: the bore's MCU reports
+  # this through the SAME ack channel every other actuator already uses
+  # (action_confirmation.py) -- it acks the START_PUMP command with
+  # ack_status: "dry" instead of "ok", rather than a dedicated cutoff
+  # sensor. Surfaces as ACTUATOR_COMMAND_REFUSED, already watched by
+  # fill_tank_1_from_bore's fault_event list in rules.yaml. See
+  # memo_ingestion_ack_interface.md for the exact interface ask -- one
+  # mechanism now covers both "did the command land" and "why was it
+  # refused" for every actuator, not just this one.
+
+  - id: bore_1_running_no_flow
+    type: commanded_vs_sensor
+    description: "core commanded bore_1 on, but its flow sensor shows nothing -- independent of bore_1_dry_or_faulty above, which trusts the bore's own status sensor instead of core's command record"
+    commanded_target: bore_1
+    commanded_action_type: START_PUMP
+    expect_sensor: bore_1_flow
     expect_op: gt
     expect_value: 0.1
     sustained_seconds: 300
-    event_type: PUMP_NO_FLOW
+    event_type: BORE_COMMANDED_NO_FLOW
     severity: 1
 
   - id: dads_ute_geofence
     type: geofence
-    description: "dads_ute more than 250m from the farm's reference point"
-    asset: dads_ute
-    # GUESSED field name -- no vehicle has sent a live GPS reading yet.
-    lat_sensor: dads_ute_gps_lat
-    lon_sensor: dads_ute_gps_lon
+    description: "Dad's Ute (ute_1) more than 250m from the farm's reference point"
+    asset: ute_1
+    # CONFIRMED (ingestion, 12/7/2026): separate latitude/longitude
+    # metrics, decimal degrees, 6dp -- not a tuple. Was a guess before.
+    lat_sensor: ute_1_latitude
+    lon_sensor: ute_1_longitude
     # Hardwired, shared across all vehicles -- edit directly here.
     # This is the centroid of the tank/bore/zone cluster already in the
     # registry (not the true property centroid -- the farm's a ~500x500x700m
@@ -66,16 +174,19 @@ rules:
     severity: 1   # CRITICAL
     # Evidence trail -- survives independently of ingestion's 90-day
     # purge (core/incident_recorder.py, writes to config/incident_log.json,
-    # never auto-deleted). Real confirmed sensor names for dads_ute --
-    # note the ute_1_ prefix mismatch (asset_id is "dads_ute" but its
-    # sensors are prefixed "ute_1_", same bug as header_tank_1).
+    # never auto-deleted). CORRECTED against real vehicles.yaml -- asset
+    # id was never actually "dads_ute" (that was a placeholder guess
+    # predating real registry data), real id is ute_1, sensors properly
+    # prefixed ute_1_* with no mismatch. There's also no "status" sensor
+    # at all -- real ute_1 sensors are temperature/battery_voltage/
+    # latitude/longitude/fuel/hours.
     record_sensors:
-      - dads_ute_gps_lat
-      - dads_ute_gps_lon
-      - dads_ute_ute_1_engine_temperature
-      - dads_ute_ute_1_fuel
-      - dads_ute_ute_1_battery_voltage
-      - dads_ute_ute_1_status
+      - ute_1_latitude
+      - ute_1_longitude
+      - ute_1_temperature
+      - ute_1_fuel
+      - ute_1_battery_voltage
+      - ute_1_hours
 
   - id: load_shed_ineffective
     type: action_effect_check

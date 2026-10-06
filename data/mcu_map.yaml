@@ -1,0 +1,15 @@
+# mcu_map.yaml — optional. Default: every asset has its own MCU
+# (mcu_<asset_id>) covering all its sensors AND its actuator channel if it
+# has one. This already matches "each tank has 1 mcu running level, flow
+# out, and the valve" with zero entries needed here.
+#
+# Only add a group below for MCUs that span MULTIPLE assets — e.g. one
+# controller box wired to both bores, or a shared zone/header controller.
+# Any asset not listed here keeps the 1-MCU-per-asset default. This is
+# what makes an mcu_down fault take out several assets' sensors AND
+# actuators at once, correlated, instead of one at a time.
+
+mcu_groups: {}
+
+# mcu_groups:
+#   mcu_bores: [bore_1, bore_2]
