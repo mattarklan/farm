@@ -1,13 +1,19 @@
-#pragma once
+#ifndef MOTOR_INTERFACE_HPP
+#define MOTOR_INTERFACE_HPP
+#include "serial_port.hpp"
 #include "rover/state/rover_state.hpp"
-#include "rover/motors/serial_port.hpp"
-#include <atomic>
-#include <thread>
 #include <string>
+#include <thread>
+#include <mutex>
+
+// Wrapper/Mock interface for serial port
 
 class MotorInterface {
 public:
-    MotorInterface(RoverState& state, const std::string& com_port = "COM4", uint32_t baud_rate = 115200);
+    MotorInterface(RoverState& state, 
+                   const std::string& com_port = "COM4", 
+                   uint32_t baud_rate = 115200, 
+                   const std::string& sim_file = "../sims/sim_esp.dat");
     ~MotorInterface();
 
     void start();
@@ -15,12 +21,18 @@ public:
 
 private:
     void run();
-    void parse_encoder_line(const std::string& line);
+    void parse_telemetry_line(const std::string& line);
+    bool read_sim_telemetry();
 
     RoverState& state_;
     std::string com_port_;
     uint32_t baud_rate_;
+    std::string sim_file_;
+    
     SerialPort serial_;
-    std::atomic<bool> running_{false};
+    bool running_{false};
+    bool using_sim_file_{false};
     std::thread thread_;
 };
+
+#endif // MOTOR_INTERFACE_HPP

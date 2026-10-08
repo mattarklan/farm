@@ -1,69 +1,74 @@
 #include "rover/state/rover_state.hpp"
-#include "rover/debug/debug_server.hpp"
+#include "rover/gps/gps_driver.hpp"
 #include "rover/motors/motor_interface.hpp"
+#include "rover/debug/debug_server.hpp"
 #include <iostream>
 #include <chrono>
 #include <thread>
-#include <csignal>
-
-std::atomic<bool> g_shutdown_requested{false};
-
-void signal_handler(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        std::cout << "\n[Main] Shutdown signal received.\n";
-        g_shutdown_requested = true;
-    }
-}
+#include <iomanip>
 
 int main() {
-    std::signal(SIGINT, signal_handler);
-    std::signal(SIGTERM, signal_handler);
-
     std::cout << "===========================================\n";
     std::cout << "       Rover Navigation System Core        \n";
-    std::cout << "===========================================\n";
+    std::cout << "===========================================\n" << std::flush;
 
-    RoverState shared_state;
+    RoverState state;
 
-    // Initialize state
-    {
-        std::lock_guard<std::mutex> lock(shared_state.state_mutex);
-        shared_state.state = SystemState::INIT;
-        shared_state.pose = { 10.5, 20.2, 1.57 };
-        shared_state.gps.rtk_fixed = true;
-        
-        // Set an initial command velocity test (0.5 m/s forward)
-        shared_state.motor_command.linear = 0.5;
-        shared_state.motor_command.angular = 0.0;
-        shared_state.motor_command.enabled = true;
-    }
+    GpsDriver gps_driver(state, "../rtk/rover_pos.dat");
+    gps_driver.start();
 
-    // Start Debug TCP Server (Phase 2)
-    DebugServer debug_server(shared_state, 5000);
+    MotorInterface motor_driver(state, "COM4", 115200, "../sims/sim_esp.dat");
+    motor_driver.start();
+
+    DebugServer debug_server(state, 5000);
     debug_server.start();
 
-    // Start Motor Interface Thread (Phase 3)
-    // Adjust "COM4" to match your ESP32's COM port if connected
-    MotorInterface motor_interface(shared_state, "COM4", 115200);
-    motor_interface.start();
+    std::cout << "[Main] System initialized. Outputting telemetry every 5s...\n\n" << std::flush;
 
-    // Transition to IDLE state
-    {
-        std::lock_guard<std::mutex> lock(shared_state.state_mutex);
-        shared_state.state = SystemState::IDLE;
-        std::cout << "[Main] System initialized. State transition -> IDLE\n";
+    auto last_log_time = std::chrono::steady_clock::now();
+
+    while (true) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_log_time).count() >= 5000) {
+            
+            // Local state snapshot
+            double lat = 0, lon = 0;
+            bool rtk = false;
+            double l_vel = 0, r_vel = 0, yaw = 0;
+            bool enc_ok = false, imu_ok = false;
+
+            {
+                std::lock_guard<std::mutex> lock(state.state_mutex);
+                lat = state.gps.latitude;
+                lon = state.gps.longitude;
+                rtk = state.gps.rtk_fixed;
+
+                l_vel = state.encoders.left_velocity;
+                r_vel = state.encoders.right_velocity;
+                enc_ok = state.encoders.valid;
+
+                yaw = state.imu.yaw;
+                imu_ok = state.imu.valid;
+            }
+
+            // Single line print with \r (carriage return) and \033[K (clear line to end)
+            std::cout << "\r[TELEMETRY] "
+                      << "GPS: " << std::fixed << std::setprecision(5) << lat << "," << lon 
+                      << " [" << (rtk ? "RTK" : "FLOAT") << "] | "
+                      << "ENC(L/R): " << std::setprecision(2) << l_vel << "/" << r_vel 
+                      << " [" << (enc_ok ? "OK" : "NO_DATA") << "] | "
+                      << "IMU Yaw: " << yaw 
+                      << " [" << (imu_ok ? "OK" : "NO_DATA") << "]\033[K" << std::flush;
+
+            last_log_time = now;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    std::cout << "[Main] Running... Press Ctrl+C to stop.\n";
-
-    while (!g_shutdown_requested) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    }
-
-    std::cout << "[Main] Stopping subsystems...\n";
-    motor_interface.stop();
+    gps_driver.stop();
+    motor_driver.stop();
     debug_server.stop();
-    std::cout << "[Main] System shutdown completed safely.\n";
 
     return 0;
 }

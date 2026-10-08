@@ -1,0 +1,3 @@
+phase 5 is next, path planning
+currently need to get the rtk/lora and the esp32 working.
+some shitty mock script on the esp32 should do it for now

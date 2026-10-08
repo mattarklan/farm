@@ -55,7 +55,7 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cerrno \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/atomicity.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/atomic_word.h \
- C:/Users/Matt/Desktop/farm/ugv/include/rover/debug/debug_server.hpp \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/gps/gps_driver.hpp \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/atomic \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/atomic_base.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/new \
@@ -84,8 +84,6 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/unique_ptr.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/debug/assertions.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/this_thread_sleep.h \
- C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/motor_interface.hpp \
- C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/serial_port.hpp \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/string \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/char_traits.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/allocator.h \
@@ -135,6 +133,8 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memory_resource.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstddef \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/uses_allocator_args.h \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/motor_interface.hpp \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/serial_port.hpp \
  C:/w64devkit/include/windows.h C:/w64devkit/include/sdkddkver.h \
  C:/w64devkit/include/excpt.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/stdarg.h \
@@ -223,6 +223,7 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/include/commdlg.h C:/w64devkit/include/stralign.h \
  C:/w64devkit/include/sec_api/stralign_s.h C:/w64devkit/include/winsvc.h \
  C:/w64devkit/include/mcx.h C:/w64devkit/include/imm.h \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/debug/debug_server.hpp \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iostream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ostream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/ostream.h \
@@ -254,4 +255,14 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/istream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/istream.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/chrono \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/csignal
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iomanip \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/locale \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_facets_nonio.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/time_members.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/messages_members.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/codecvt.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_facets_nonio.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_conv.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/quoted_string.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/sstream \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc

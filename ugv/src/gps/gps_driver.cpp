@@ -1,9 +1,9 @@
 #include "rover/gps/gps_driver.hpp"
-#include <iostream>
 #include <fstream>
 #include <sstream>
 #include <chrono>
 #include <cmath>
+#include <thread>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -37,10 +37,9 @@ void GpsDriver::stop() {
     }
 }
 
-// Convert Geodetic (Lat, Lon, Alt) -> Local ENU Cartesian Meters (WGS-84)
 LocalPoint GpsDriver::geodetic_to_enu(double lat, double lon, double alt, const GeoOrigin& origin) {
-    const double a = 6378137.0;          // WGS-84 Earth Semi-major axis
-    const double f = 1.0 / 298.257223563; // Flattening
+    const double a = 6378137.0;        
+    const double f = 1.0 / 298.257223563; 
     const double e2 = f * (2.0 - f);
 
     auto deg_to_rad = [](double deg) { return deg * M_PI / 180.0; };
@@ -106,10 +105,8 @@ static std::string extract_json_field(const std::string& json, const std::string
 }
 
 void GpsDriver::run() {
-    std::cout << "[GpsDriver] Reading shared memory (" << mmap_file_ << ")...\n";
-
     if (!origin_set_) {
-        set_origin(37.774929, -122.419416, 15.0); // Default benchmark origin
+        set_origin(-32.1504, 116.0123, 15.0);
     }
 
     while (running_) {
@@ -128,10 +125,10 @@ void GpsDriver::run() {
                     int sats = sats_str.empty() ? 0 : std::stoi(sats_str);
                     bool is_rtk = (fix_str.find("Fixed RTK") != std::string::npos);
 
-                    // Convert Geodetic (Lat/Lon) -> Local ENU Cartesian Frame (Meters)
+                    // Convert Geodetic (Lat/Lon) -> Local ENU Cartesian Frame
                     LocalPoint enu = geodetic_to_enu(lat, lon, origin_.altitude, origin_);
 
-                    // Update shared system state atomically
+                    // Update shared system state
                     {
                         std::lock_guard<std::mutex> lock(state_.state_mutex);
                         state_.gps.latitude   = lat;
@@ -141,18 +138,16 @@ void GpsDriver::run() {
                         state_.gps.sats       = sats;
                         state_.gps.valid      = true;
 
-                        // Local coordinate update
                         state_.pose.x = enu.east;
                         state_.pose.y = enu.north;
                     }
                 }
             } catch (...) {
-                // Ignore transient partial writes gracefully
+                // Ignore transient partial read errors
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 10 Hz refresh
+        // Poll shared memory at 5 Hz (200 ms sleep interval)
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
-
-    std::cout << "[GpsDriver] Stopped.\n";
 }

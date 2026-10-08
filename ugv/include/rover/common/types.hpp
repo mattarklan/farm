@@ -23,6 +23,8 @@ struct GpsPosition {
 
 struct ImuData {
     double yaw = 0.0;
+    double pitch = 0.0;
+    double roll = 0.0;
     double angular_velocity = 0.0;
     double acceleration_x = 0.0;
     double acceleration_y = 0.0;
