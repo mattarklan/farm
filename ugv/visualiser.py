@@ -2,21 +2,23 @@
 """
 Robot visualiser + keyboard driver. Shows the robot on a costmap, live.
 
-By default it LAUNCHES the simulator (ugv/sims/sim_robot.py) for you. That one process
-writes both the GNSS file and the ESP32 file from a single robot state, so they start
-together and stay in sync. Drive with the arrow keys; the telemetry follows.
+Two robots are drawn:
+  GOAL   (solid blue)   a smooth, high-frame-rate robot that goes exactly where you drive it.
+                        It integrates your commanded velocity (arrow keys) with the same
+                        acceleration limits as the simulator, so it is the teleop goal pose.
+  GHOST  (transparent)  where the TELEMETRY says the robot actually is (GNSS when it has a
+                        fix, otherwise wheel odometry). It is smoothed + extrapolated between
+                        updates so it glides, and it chases the goal robot. The gap between
+                        them is the tracking error / latency.
+
+By default it LAUNCHES the simulator (ugv/sims/sim_robot.py). That one process writes both
+the GNSS file and the ESP32 file from a single robot state, so they stay in sync.
 
 Reads (same files your program reads):
   ugv/rtk/rover_pos.dat   GNSS position + fix state
   ugv/esp/sim_esp.dat     encoders + IMU
 Writes (arrow keys):
   ugv/esp/cmd_vel.dat     {"linear": m/s, "angular": rad/s, "ts": unix time}
-
-Draws:
-  - cmap.png as the costmap (1 pixel = 50 mm, white = free, black = obstacle)
-  - robot footprint + heading, coloured GNSS marker (colour = fix quality)
-  - GNSS trail and wheel-odometry trail
-  - side panel: fix, sats, hdop, ticks, speed, gyro, accel, commanded vs measured, cost under robot
 
 Layout: ugv/viz/visualiser.py
 
@@ -25,13 +27,13 @@ Layout: ugv/viz/visualiser.py
   python visualiser.py --circle 2            # sim drives a 2 m circle by itself
   python visualiser.py --fix "Fixed RTK"     # skip the fix warm-up
   python visualiser.py --no-sim              # don't launch a sim (real hardware / sim already running)
-  python visualiser.py --no-drive            # view only, arrow keys do nothing
+  python visualiser.py --no-drive            # arrow keys do nothing (goal follows cmd_vel.dat instead)
   python visualiser.py --cmap ../maps/cmap.png --invert
 
 Keys (click the window first so it has focus):
   up / down      forward / reverse        left / right   turn left / right (CCW / CW)
-  space          stop                     f  follow robot / show whole map
-  c              clear trails             o  re-anchor odometry to GNSS     q  quit
+  space          stop                     r  snap goal robot to the telemetry ghost
+  f              follow robot / whole map c  clear trails      o  re-anchor odometry to GNSS     q  quit
 
 Map placement: the CENTRE of cmap.png is the sim's origin (--ref-lat/--ref-lon, default
 -31.9505, 115.8605). The robot starts there unless you use --start-x / --start-y (metres
@@ -73,6 +75,7 @@ DEFAULT_LAT, DEFAULT_LON = -31.9505, 115.8605
 M_PER_DEG = 111320.0   # same constant the sim uses
 GNSS_STALE_S = 3.0
 ESP_STALE_S = 1.5
+CMD_TIMEOUT_S = 0.5
 CMD_SIZE = 128
 ARROWS = ("up", "down", "left", "right")
 
@@ -84,6 +87,7 @@ FIX_COLORS = {
     "No Fix": "#e74c3c",
 }
 WHITE, GREY, RED, GREEN, HDR = "#e8e8e8", "#8a8a8a", "#ff5555", "#2ecc71", "#58a6ff"
+GOAL_COLOR, GHOST_COLOR = "#4aa3ff", "#ffb347"
 
 
 def read_dat(path):
@@ -118,6 +122,10 @@ def wrap(a):
     return (a + math.pi) % (2 * math.pi) - math.pi
 
 
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
 def yaw_from_quat(q):
     w, x, y, z = q
     return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
@@ -138,6 +146,7 @@ def launch_sim(args):
         "--lat", str(args.ref_lat), "--lon", str(args.ref_lon),
         "--start-x", str(args.start_x), "--start-y", str(args.start_y), "--start-yaw", str(args.start_yaw),
         "--circle", str(args.circle), "--speed", str(args.circle_speed),
+        "--lin-accel", str(args.lin_accel), "--ang-accel", str(args.ang_accel),
         "--wheel-base", str(args.wheel_base), "--wheel-diameter", str(args.wheel_diameter),
         "--ticks-per-rev", str(args.ticks_per_rev),
         "--rtk-file", args.rover_file, "--esp-file", args.esp_file, "--cmd-file", args.cmd_file,
@@ -180,7 +189,7 @@ class Visualiser:
             print("Costmap: cmap.png not found (searched next to this script, ../, and cwd) - showing blank grid. Use --cmap.")
             self.extent = (-10, 10, -10, 10)
 
-        # robot / telemetry state
+        # telemetry state
         self.gpos = None
         self.gfix = "No Fix"
         self.last_rts = None
@@ -190,9 +199,19 @@ class Visualiser:
         self.last_seq = None
         self.o_yaw = math.radians(args.start_yaw) if sim_proc is not None else 0.0
         self.have_yaw = False
+        self.g_t = self.o_t = self.e_t = 0.0      # monotonic time of last GNSS / odom / ESP update
+        self.meas_v = self.meas_w = 0.0           # measured speed (m/s) and yaw rate (rad/s)
         self.g_trail = deque(maxlen=args.trail)
         self.o_trail = deque(maxlen=args.trail)
         self.follow = True
+
+        # goal robot (smooth, from commands) and telemetry ghost
+        self.goal = [args.start_x, args.start_y, math.radians(args.start_yaw)] if sim_proc is not None else None
+        self.gv = self.gw = 0.0
+        self.goal_trail = deque(maxlen=args.trail)
+        self.ghost = None
+        self.t_last = time.monotonic()
+        self._panel_t = 0.0
 
         # keyboard control
         self.keys = set()
@@ -203,6 +222,16 @@ class Visualiser:
         self._build_figure()
 
     # ---------- figure ----------
+    def _footprint(self, x, y, yaw):
+        c, s = math.cos(yaw), math.sin(yaw)
+        hl, hw = self.a.robot_length / 2, self.a.robot_width / 2
+        pts = [(hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)]
+        return [(x + px * c - py * s, y + px * s + py * c) for px, py in pts]
+
+    def _heading_pts(self, x, y, yaw):
+        reach = self.a.robot_length / 2 + 0.15
+        return [x, x + reach * math.cos(yaw)], [y, y + reach * math.sin(yaw)]
+
     def _build_figure(self):
         plt.style.use("dark_background")
         # free up matplotlib's default shortcuts (arrows, f, c, o, ...) - keep only quit
@@ -225,24 +254,35 @@ class Visualiser:
         ax.grid(True, alpha=0.25, zorder=1)
         ax.set_xlabel("East (m)")
         ax.set_ylabel("North (m)")
-        ax.set_title("Robot on costmap  (white = free, black = obstacle)", fontsize=10)
+        ax.set_title("Goal (solid) vs telemetry ghost (transparent)   |   white = free, black = obstacle", fontsize=10)
 
-        self.g_line, = ax.plot([], [], "-", color="#2ecc71", lw=1.5, alpha=0.8, label="GNSS trail", zorder=3)
-        self.o_line, = ax.plot([], [], "--", color="#e056fd", lw=1.5, alpha=0.9, label="Odometry trail", zorder=3)
-        self.g_dot, = ax.plot([], [], "o", ms=9, mec="w", mew=1, zorder=5, label="GNSS position")
-        self.o_dot, = ax.plot([], [], "D", ms=7, color="#e056fd", mec="w", mew=1, zorder=5, label="Odometry position")
-        self.body = Polygon(np.zeros((4, 2)), closed=True, fc="#4aa3ff", ec="w", alpha=0.55, lw=1.5, zorder=4)
-        self.body.set_visible(False)
-        ax.add_patch(self.body)
-        self.heading, = ax.plot([], [], "-", color="w", lw=2.5, zorder=6)
+        self.goal_line, = ax.plot([], [], ":", color="#ffffff", lw=1.2, alpha=0.7, label="Goal path", zorder=3)
+        self.g_line, = ax.plot([], [], "-", color="#2ecc71", lw=1.3, alpha=0.7, label="GNSS trail", zorder=3)
+        self.o_line, = ax.plot([], [], "--", color="#e056fd", lw=1.3, alpha=0.8, label="Odometry trail", zorder=3)
+        self.g_dot, = ax.plot([], [], "o", ms=6, mec="w", mew=0.8, zorder=5, label="Raw GNSS")
+        self.o_dot, = ax.plot([], [], "D", ms=5, color="#e056fd", mec="w", mew=0.8, zorder=5, label="Raw odometry")
+
+        self.err_line, = ax.plot([], [], "-", color="#ffe066", lw=1.2, alpha=0.9, zorder=5)
+        self.ghost_body = Polygon(np.zeros((4, 2)), closed=True, fc=GHOST_COLOR, ec=GHOST_COLOR, alpha=0.35,
+                                  lw=1.5, ls="--", zorder=6, label="Telemetry ghost")
+        self.ghost_body.set_visible(False)
+        ax.add_patch(self.ghost_body)
+        self.ghost_head, = ax.plot([], [], "-", color=GHOST_COLOR, lw=2, alpha=0.8, zorder=7)
+
+        self.goal_body = Polygon(np.zeros((4, 2)), closed=True, fc=GOAL_COLOR, ec="w", alpha=0.85,
+                                 lw=1.5, zorder=8, label="Goal (smooth, teleop)")
+        self.goal_body.set_visible(False)
+        ax.add_patch(self.goal_body)
+        self.goal_head, = ax.plot([], [], "-", color="w", lw=2.5, zorder=9)
+
         ax.legend(loc="upper right", fontsize=8, framealpha=0.5)
         ax.set_xlim(-6, 6)
         ax.set_ylim(-6, 6)
 
         panel = self.fig.add_axes([0.70, 0.05, 0.29, 0.90])
         panel.axis("off")
-        self.rows = [panel.text(0.0, 1 - i * 0.029, "", family="monospace", fontsize=9, va="top",
-                                transform=panel.transAxes, color=WHITE) for i in range(34)]
+        self.rows = [panel.text(0.0, 1 - i * 0.0245, "", family="monospace", fontsize=9, va="top",
+                                transform=panel.transAxes, color=WHITE) for i in range(40)]
         self.fig.canvas.mpl_connect("key_press_event", self._on_press)
         self.fig.canvas.mpl_connect("key_release_event", self._on_release)
 
@@ -263,12 +303,18 @@ class Visualiser:
         elif k == "c":
             self.g_trail.clear()
             self.o_trail.clear()
+            self.goal_trail.clear()
         elif k == "f":
             self.follow = not self.follow
         elif k == "o":
             if self.gpos is not None and self.odom is not None:
                 self.odom = list(self.gpos)
                 self.o_trail.clear()
+        elif k == "r":
+            if self.ghost is not None:
+                self.goal = list(self.ghost)
+                self.gv = self.gw = 0.0
+                self.goal_trail.clear()
 
     def _on_release(self, ev):
         if ev.key in ARROWS:
@@ -291,6 +337,17 @@ class Visualiser:
         self.cmd_active = active
         self.cmd = (lin, ang)
 
+    def current_cmd(self):
+        """Velocity command the goal robot should follow: (linear m/s, angular rad/s)."""
+        if self.sim is not None and self.a.circle > 0:
+            return self.a.circle_speed, self.a.circle_speed / self.a.circle
+        if self.a.drive:
+            return self.cmd
+        d = read_dat(self.a.cmd_file)          # external program is driving: follow its cmd_vel.dat
+        if d and time.time() - float(d.get("ts", 0)) <= CMD_TIMEOUT_S:
+            return float(d.get("linear", 0.0)), float(d.get("angular", 0.0))
+        return 0.0, 0.0
+
     # ---------- data ----------
     def to_local(self, lat, lon):
         lat0, lon0 = self.ref
@@ -310,6 +367,7 @@ class Visualiser:
         ts = rv.get("ts")
         if ts != self.last_rts:
             self.last_rts = ts
+            self.g_t = time.monotonic()
             self.g_trail.append(self.gpos)
 
     def process_esp(self, es):
@@ -323,10 +381,15 @@ class Visualiser:
         L, R = enc.get("left_ticks"), enc.get("right_ticks")
         if L is None or R is None:
             return
-        q = es.get("imu", {}).get("quat")
+        imu = es.get("imu", {})
+        q = imu.get("quat")
         yaw = yaw_from_quat(q) if q and len(q) == 4 else None
         if yaw is not None:
             self.have_yaw = True
+        self.e_t = time.monotonic()
+        self.meas_v = ((enc.get("left_vel", 0.0) + enc.get("right_vel", 0.0)) / 2) / self.ticks_per_m
+        gyro = imu.get("gyro")
+        self.meas_w = gyro[2] if gyro and len(gyro) == 3 else 0.0
 
         if self.prev is None:
             self.prev = (L, R, yaw)
@@ -334,6 +397,7 @@ class Visualiser:
                 self.odom = list(self.odom_origin)
             if yaw is not None:
                 self.o_yaw = yaw
+            self.o_t = self.e_t
             return
 
         pl, pr, pyaw = self.prev
@@ -350,6 +414,7 @@ class Visualiser:
         self.odom[0] += d * math.cos(mid)
         self.odom[1] += d * math.sin(mid)
         self.prev = (L, R, yaw)
+        self.o_t = self.e_t
         self.o_trail.append(tuple(self.odom))
 
     def cost_at(self, x, y):
@@ -362,9 +427,58 @@ class Visualiser:
             return float(self.cost[row, col]) / 255 * 100
         return -1.0   # off map
 
+    # ---------- per-frame models ----------
+    def telemetry_target(self, now_m, g_fresh):
+        """Best telemetry pose (x, y, yaw), extrapolated forward from the last sample using the
+        measured speed and yaw rate so it moves continuously between 4-5 Hz updates."""
+        if g_fresh and self.gpos is not None:
+            bx, by = self.gpos
+            t0 = self.g_t
+        elif self.odom is not None:
+            bx, by = self.odom
+            t0 = self.o_t
+        else:
+            return None
+        ey = clamp(now_m - self.e_t, 0.0, 0.5) if self.e_t else 0.0
+        yaw = self.o_yaw + self.meas_w * ey
+        ex = clamp(now_m - t0, 0.0, 0.5)
+        return bx + self.meas_v * ex * math.cos(yaw), by + self.meas_v * ex * math.sin(yaw), yaw
+
+    def step_models(self, dt, now_m, g_fresh):
+        # ghost: low-pass toward the telemetry target
+        tgt = self.telemetry_target(now_m, g_fresh)
+        if tgt is not None:
+            if self.ghost is None:
+                self.ghost = list(tgt)
+            else:
+                k = 1.0 - math.exp(-dt / max(self.a.ghost_tau, 1e-3))
+                self.ghost[0] += (tgt[0] - self.ghost[0]) * k
+                self.ghost[1] += (tgt[1] - self.ghost[1]) * k
+                self.ghost[2] = wrap(self.ghost[2] + wrap(tgt[2] - self.ghost[2]) * k)
+        # goal: first appearance snaps to the ghost when there is no known start pose
+        if self.goal is None and self.ghost is not None:
+            self.goal = list(self.ghost)
+        if self.goal is None:
+            return
+        cv, cw = self.current_cmd()
+        lv, lw = self.a.lin_accel * dt, self.a.ang_accel * dt
+        self.gv += clamp(cv - self.gv, -lv, lv)
+        self.gw += clamp(cw - self.gw, -lw, lw)
+        mid = self.goal[2] + self.gw * dt / 2
+        self.goal[0] += self.gv * math.cos(mid) * dt
+        self.goal[1] += self.gv * math.sin(mid) * dt
+        self.goal[2] = wrap(self.goal[2] + self.gw * dt)
+        if not self.goal_trail or math.hypot(self.goal[0] - self.goal_trail[-1][0],
+                                             self.goal[1] - self.goal_trail[-1][1]) > 0.02:
+            self.goal_trail.append((self.goal[0], self.goal[1]))
+
     # ---------- frame ----------
     def update(self, _frame):
         now = time.time()
+        now_m = time.monotonic()
+        dt = clamp(now_m - self.t_last, 0.0, 0.1)
+        self.t_last = now_m
+
         rv = read_dat(self.a.rover_file)
         es = read_dat(self.a.esp_file)
         if rv:
@@ -376,13 +490,17 @@ class Visualiser:
         if self.odom is not None and not self.odom_anchored and self.gpos is not None:
             self.odom = list(self.gpos)
             self.o_trail.clear()
+            self.o_t = now_m
             self.odom_anchored = True
 
         g_age = (now - rv["ts"]) if rv and "ts" in rv else None
         e_age = (now - es["ts"]) if es and "ts" in es else None
         g_fresh = self.gpos is not None and g_age is not None and g_age <= GNSS_STALE_S
 
-        for line, tr in ((self.g_line, self.g_trail), (self.o_line, self.o_trail)):
+        self.step_models(dt, now_m, g_fresh)
+
+        # trails + raw markers
+        for line, tr in ((self.g_line, self.g_trail), (self.o_line, self.o_trail), (self.goal_line, self.goal_trail)):
             if tr:
                 xs, ys = zip(*tr)
                 line.set_data(xs, ys)
@@ -398,32 +516,59 @@ class Visualiser:
         else:
             self.o_dot.set_data([], [])
 
-        pose = self.gpos if g_fresh else (tuple(self.odom) if self.odom is not None else None)
-        if pose is not None:
-            c, s = math.cos(self.o_yaw), math.sin(self.o_yaw)
-            hl, hw = self.a.robot_length / 2, self.a.robot_width / 2
-            pts = [(hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)]
-            self.body.set_xy([(pose[0] + px * c - py * s, pose[1] + px * s + py * c) for px, py in pts])
-            self.body.set_visible(True)
-            self.heading.set_data([pose[0], pose[0] + (hl + 0.15) * c], [pose[1], pose[1] + (hl + 0.15) * s])
+        # ghost
+        if self.ghost is not None:
+            gx, gy, gyaw = self.ghost
+            self.ghost_body.set_xy(self._footprint(gx, gy, gyaw))
+            self.ghost_body.set_visible(True)
+            hx, hy = self._heading_pts(gx, gy, gyaw)
+            self.ghost_head.set_data(hx, hy)
         else:
-            self.body.set_visible(False)
-            self.heading.set_data([], [])
+            self.ghost_body.set_visible(False)
+            self.ghost_head.set_data([], [])
 
-        if self.follow and pose is not None:
+        # goal
+        if self.goal is not None:
+            x, y, yaw = self.goal
+            self.goal_body.set_xy(self._footprint(x, y, yaw))
+            self.goal_body.set_visible(True)
+            hx, hy = self._heading_pts(x, y, yaw)
+            self.goal_head.set_data(hx, hy)
+            if self.ghost is not None:
+                self.err_line.set_data([x, self.ghost[0]], [y, self.ghost[1]])
+            else:
+                self.err_line.set_data([], [])
+        else:
+            self.goal_body.set_visible(False)
+            self.goal_head.set_data([], [])
+            self.err_line.set_data([], [])
+
+        # camera follows the smooth goal robot (falls back to the ghost)
+        focus = self.goal if self.goal is not None else self.ghost
+        if self.follow and focus is not None:
             half = self.a.view / 2
-            self.ax.set_xlim(pose[0] - half, pose[0] + half)
-            self.ax.set_ylim(pose[1] - half, pose[1] + half)
+            self.ax.set_xlim(focus[0] - half, focus[0] + half)
+            self.ax.set_ylim(focus[1] - half, focus[1] + half)
         elif not self.follow:
             l, r, b, t = self.extent
             m = 0.5
             self.ax.set_xlim(l - m, r + m)
             self.ax.set_ylim(b - m, t + m)
 
-        self._draw_panel(rv, es, g_age, e_age, pose)
+        if now_m - self._panel_t >= 0.1:        # text panel at 10 Hz is plenty
+            self._panel_t = now_m
+            self._draw_panel(rv, es, g_age, e_age)
         return []
 
-    def _draw_panel(self, rv, es, g_age, e_age, pose):
+    @staticmethod
+    def _cost_txt(c):
+        if c is None:
+            return "n/a", GREY
+        if c < 0:
+            return "OFF MAP", RED
+        return (f"{c:.0f}%" + (" OCCUPIED" if c > 50 else "")), (RED if c > 50 else WHITE)
+
+    def _draw_panel(self, rv, es, g_age, e_age):
         rows = [("GNSS  (rover_pos.dat)", HDR)]
         if not rv:
             rows.append(("  NO DATA", RED))
@@ -440,6 +585,18 @@ class Visualiser:
             ]
 
         rows += [("", WHITE), ("POSE  (m from map centre)", HDR)]
+        if self.goal is not None:
+            rows.append((f"  GOAL   x={self.goal[0]:+8.2f}  y={self.goal[1]:+8.2f}", GOAL_COLOR))
+        else:
+            rows.append(("  GOAL   waiting for telemetry", GREY))
+        if self.ghost is not None:
+            rows.append((f"  GHOST  x={self.ghost[0]:+8.2f}  y={self.ghost[1]:+8.2f}", GHOST_COLOR))
+            if self.goal is not None:
+                err = math.hypot(self.goal[0] - self.ghost[0], self.goal[1] - self.ghost[1])
+                rows.append((f"  track  {err:.2f} m behind goal" + ("  [r] resync" if err > 1.0 else ""),
+                             RED if err > 1.0 else WHITE))
+        else:
+            rows.append(("  GHOST  no telemetry", GREY))
         if self.gpos is not None:
             rows.append((f"  GNSS   x={self.gpos[0]:+8.2f}  y={self.gpos[1]:+8.2f}", WHITE))
         else:
@@ -451,15 +608,15 @@ class Visualiser:
                 rows.append((f"  drift  {drift:.2f} m (odom vs GNSS)", WHITE))
         else:
             rows.append(("  ODOM   no data", GREY))
-        rows.append((f"  yaw    {math.degrees(self.o_yaw):+7.1f} deg" + ("" if self.have_yaw else "  (from enc)"), WHITE))
-        if pose is not None:
-            c = self.cost_at(*pose)
-            if c is None:
-                rows.append(("  cost   no costmap", GREY))
-            elif c < 0:
-                rows.append(("  cost   OFF MAP", RED))
-            else:
-                rows.append((f"  cost   {c:.0f} %" + ("  OCCUPIED" if c > 50 else ""), RED if c > 50 else WHITE))
+        gy = math.degrees(self.goal[2]) if self.goal is not None else float("nan")
+        rows.append((f"  yaw    goal {gy:+6.1f}  tel {math.degrees(self.o_yaw):+6.1f}"
+                     + ("" if self.have_yaw else " (enc)"), WHITE))
+        if self.ghost is not None:
+            txt, col = self._cost_txt(self.cost_at(self.ghost[0], self.ghost[1]))
+            rows.append((f"  cost   robot {txt}", col))
+        if self.goal is not None:
+            txt, col = self._cost_txt(self.cost_at(self.goal[0], self.goal[1]))
+            rows.append((f"  cost   goal  {txt}", col))
 
         rows += [("", WHITE), ("ESP32  (sim_esp.dat)", HDR)]
         if not es:
@@ -467,13 +624,12 @@ class Visualiser:
         else:
             enc, imu = es.get("enc", {}), es.get("imu", {})
             gyro, acc = imu.get("gyro", [0, 0, 0]), imu.get("accel", [0, 0, 0])
-            speed = ((enc.get("left_vel", 0) + enc.get("right_vel", 0)) / 2) / self.ticks_per_m
             stale = e_age is not None and e_age > ESP_STALE_S
             rows += [
                 (f"  seq    {es.get('seq', '?')}", WHITE),
                 (f"  L ticks {enc.get('left_ticks', '?')}", WHITE),
                 (f"  R ticks {enc.get('right_ticks', '?')}", WHITE),
-                (f"  speed  {speed:+.2f} m/s", WHITE),
+                (f"  speed  {self.meas_v:+.2f} m/s", WHITE),
                 (f"  gyro z {gyro[2]:+.3f} rad/s", WHITE),
                 (f"  accel  {acc[0]:+.2f} {acc[1]:+.2f} {acc[2]:+.2f}", WHITE),
                 (f"  age    {e_age:.1f} s{'  STALE' if stale else ''}" if e_age is not None else "  age    ?",
@@ -486,10 +642,11 @@ class Visualiser:
         elif self.a.drive:
             src = "arrow keys"
         else:
-            src = "external (--no-drive)"
+            src = "external cmd_vel.dat (--no-drive)"
+        cv, cw = self.current_cmd()
         rows.append((f"  src    {src}", WHITE))
-        rows.append((f"  cmd    v={self.cmd[0]:+.2f} m/s  w={self.cmd[1]:+.2f} rad/s",
-                     GREEN if self.cmd_active else WHITE))
+        rows.append((f"  cmd    v={cv:+.2f} m/s  w={cw:+.2f} rad/s", GREEN if (cv or cw) else WHITE))
+        rows.append((f"  goal   v={self.gv:+.2f} m/s  w={self.gw:+.2f} rad/s", GOAL_COLOR))
         if self.sim is None:
             sim_txt, sim_col = "not launched", GREY
         elif self.sim.poll() is None:
@@ -500,7 +657,8 @@ class Visualiser:
 
         rows += [("", WHITE),
                  ("arrows drive   space stop", GREY),
-                 ("[f] follow/full [c] clear [o] odom", GREY)]
+                 ("[r] snap goal to ghost  [f] follow/full", GREY),
+                 ("[c] clear trails  [o] re-anchor odom", GREY)]
         for t, (txt, col) in zip(self.rows, rows + [("", WHITE)] * len(self.rows)):
             t.set_text(txt)
             t.set_color(col)
@@ -518,6 +676,10 @@ def main():
     ap.add_argument("--circle-speed", type=float, default=0.5, help="autopilot speed, m/s")
     ap.add_argument("--max-speed", type=float, default=1.0, help="arrow-key forward speed, m/s (default 1.0)")
     ap.add_argument("--max-turn", type=float, default=1.2, help="arrow-key turn rate, rad/s (default 1.2)")
+    ap.add_argument("--lin-accel", type=float, default=1.0, help="goal robot + sim max linear accel, m/s^2")
+    ap.add_argument("--ang-accel", type=float, default=3.0, help="goal robot + sim max angular accel, rad/s^2")
+    ap.add_argument("--ghost-tau", type=float, default=0.15,
+                    help="ghost smoothing time constant, s (lower = snappier, higher = smoother; default 0.15)")
     ap.add_argument("--start-x", type=float, default=0.0, help="sim start, m east of map centre")
     ap.add_argument("--start-y", type=float, default=0.0, help="sim start, m north of map centre")
     ap.add_argument("--start-yaw", type=float, default=0.0, help="sim start heading, deg (0 = east, CCW +)")
@@ -530,7 +692,7 @@ def main():
     ap.add_argument("--ref-lon", type=float, help="longitude at the map centre")
     ap.add_argument("--view", type=float, default=12.0, help="follow-view window size in m (default 12)")
     ap.add_argument("--trail", type=int, default=2000, help="max trail points (default 2000)")
-    ap.add_argument("--fps", type=float, default=10.0, help="redraw rate (default 10)")
+    ap.add_argument("--fps", type=float, default=30.0, help="redraw rate (default 30; lower it if the window lags)")
     ap.add_argument("--robot-length", type=float, default=0.45, help="footprint length, m")
     ap.add_argument("--robot-width", type=float, default=0.35, help="footprint width, m")
     # must match the robot (the sim is launched with these too)
