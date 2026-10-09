@@ -254,4 +254,19 @@ CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fstream.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/sstream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/chrono
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/chrono \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cmath \
+ C:/w64devkit/include/math.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/specfun.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/gamma.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/special_function_util.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/bessel_function.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/beta_function.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/ell_integral.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/exp_integral.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/hypergeometric.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/legendre_function.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/modified_bessel_func.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/poly_hermite.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/poly_laguerre.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/riemann_zeta.tcc

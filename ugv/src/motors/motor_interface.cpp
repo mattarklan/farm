@@ -3,6 +3,24 @@
 #include <fstream>
 #include <sstream>
 #include <chrono>
+#include <cmath>
+
+static double extract_json_double(const std::string& str, const std::string& key) {
+    size_t pos = str.find("\"" + key + "\"");
+    if (pos == std::string::npos) return 0.0;
+    
+    pos = str.find(':', pos);
+    if (pos == std::string::npos) return 0.0;
+    
+    size_t start = str.find_first_of("-0123456789.", pos);
+    if (start == std::string::npos) return 0.0;
+    
+    try {
+        return std::stod(str.substr(start));
+    } catch (...) {
+        return 0.0;
+    }
+}
 
 MotorInterface::MotorInterface(RoverState& state, const std::string& com_port, 
                                uint32_t baud_rate, const std::string& sim_file)
@@ -31,24 +49,76 @@ bool MotorInterface::read_sim_telemetry() {
     if (!file.is_open()) return false;
 
     std::string line;
+    bool parsed_any = false;
     while (std::getline(file, line)) {
-        parse_telemetry_line(line);
+        if (!line.empty()) {
+            parse_telemetry_line(line);
+            parsed_any = true;
+        }
     }
-    return true;
+    return parsed_any;
 }
 
-void MotorInterface::parse_telemetry_line(const std::string& line) {
-    // Protocol 1: "ENC,<left_dist>,<right_dist>,<left_vel>,<right_vel>"
-    if (line.rfind("ENC,", 0) == 0) {
-        std::stringstream ss(line.substr(4));
-        std::string token;
-        double l_dist = 0, r_dist = 0, l_vel = 0, r_vel = 0;
+void MotorInterface::parse_telemetry_line(const std::string& raw_line) {
+    std::string line = raw_line;
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
+        line.pop_back();
+    }
+    if (line.empty()) return;
 
-        try {
+    try {
+        // --- FORMAT A: JSON Telemetry (sim_esp.dat) ---
+        if (line.front() == '{' && line.back() == '}') {
+            double l_vel   = extract_json_double(line, "left_vel");
+            double r_vel   = extract_json_double(line, "right_vel");
+            double l_ticks = extract_json_double(line, "left_ticks");
+            double r_ticks = extract_json_double(line, "right_ticks");
+
+            double yaw = 0.0;
+            size_t quat_pos = line.find("\"quat\":");
+            if (quat_pos != std::string::npos) {
+                size_t arr_start = line.find('[', quat_pos);
+                size_t arr_end   = line.find(']', arr_start);
+                if (arr_start != std::string::npos && arr_end != std::string::npos) {
+                    std::string q_str = line.substr(arr_start + 1, arr_end - arr_start - 1);
+                    std::stringstream ss(q_str);
+                    std::string token;
+                    double qw = 1.0, qx = 0.0, qy = 0.0, qz = 0.0;
+
+                    if (std::getline(ss, token, ',')) qw = std::stod(token);
+                    if (std::getline(ss, token, ',')) qx = std::stod(token);
+                    if (std::getline(ss, token, ',')) qy = std::stod(token);
+                    if (std::getline(ss, token, ',')) qz = std::stod(token);
+
+                    yaw = std::atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
+                }
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(state_.state_mutex);
+                state_.encoders.left_velocity  = l_vel;
+                state_.encoders.right_velocity = r_vel;
+                state_.encoders.left_distance  = l_ticks;
+                state_.encoders.right_distance = r_ticks;
+                state_.encoders.valid          = true;
+
+                state_.imu.yaw   = yaw;
+                state_.imu.valid = true;
+                state_.pose.yaw  = yaw;
+            }
+            return;
+        }
+
+        // --- FORMAT B: Standard CSV Telemetry ---
+        if (line.rfind("ENC,", 0) == 0) {
+            std::stringstream ss(line.substr(4));
+            std::string token;
+            double l_dist = 0, r_dist = 0, l_vel = 0, r_vel = 0;
+
             if (std::getline(ss, token, ',')) l_dist = std::stod(token);
             if (std::getline(ss, token, ',')) r_dist = std::stod(token);
-            if (std::getline(ss, token, ',')) l_vel = std::stod(token);
-            if (std::getline(ss, token, ',')) r_vel = std::stod(token);
+            if (std::getline(ss, token, ',')) l_vel  = std::stod(token);
+            if (std::getline(ss, token, ',')) r_vel  = std::stod(token);
 
             std::lock_guard<std::mutex> lock(state_.state_mutex);
             state_.encoders.left_distance  = l_dist;
@@ -56,66 +126,58 @@ void MotorInterface::parse_telemetry_line(const std::string& line) {
             state_.encoders.left_velocity  = l_vel;
             state_.encoders.right_velocity = r_vel;
             state_.encoders.valid          = true;
-        } catch (...) {}
-    }
-    // Protocol 2: "IMU,<yaw>,<pitch>,<roll>"
-else if (line.rfind("IMU,", 0) == 0) {
-        std::stringstream ss(line.substr(4));
-        std::string token;
-        double yaw = 0, pitch = 0, roll = 0;
+        } 
+        else if (line.rfind("IMU,", 0) == 0) {
+            std::stringstream ss(line.substr(4));
+            std::string token;
+            double yaw = 0, pitch = 0, roll = 0;
 
-        try {
             if (std::getline(ss, token, ',')) yaw   = std::stod(token);
             if (std::getline(ss, token, ',')) pitch = std::stod(token);
             if (std::getline(ss, token, ',')) roll  = std::stod(token);
 
             std::lock_guard<std::mutex> lock(state_.state_mutex);
-            state_.imu.yaw   = yaw;     // If your struct uses 'heading', change this to state_.imu.heading = yaw;
+            state_.imu.yaw   = yaw;
             state_.imu.pitch = pitch;
             state_.imu.roll  = roll;
             state_.imu.valid = true;
-
-            state_.pose.yaw = yaw;
-        } catch (...) {}
+            state_.pose.yaw  = yaw;
+        }
+    } catch (...) {
+        // Suppress parsing exceptions
     }
 }
 
 void MotorInterface::run() {
-    std::cout << "[MotorInterface] Attempting connection to " << com_port_ << "...\n" << std::flush;
+    std::cout << "[MotorInterface] Thread running...\n" << std::flush;
 
     if (serial_.open(com_port_, baud_rate_)) {
         using_sim_file_ = false;
-        std::cout << "[MotorInterface] Connected to hardware on " << com_port_ << ".\n" << std::flush;
+        std::cout << "[MotorInterface] Connected on " << com_port_ << ".\n" << std::flush;
     } else {
         using_sim_file_ = true;
-        std::cout << "[MotorInterface] " << com_port_ << " NOT detected. Falling back to simulation mode (" << sim_file_ << ").\n" << std::flush;
+        std::cout << "[MotorInterface] Fallback mode: Reading " << sim_file_ << "\n" << std::flush;
     }
 
     while (running_) {
         MotorCommand current_cmd;
 
-        // Fetch command from shared state
         {
             std::lock_guard<std::mutex> lock(state_.state_mutex);
             current_cmd = state_.motor_command;
         }
 
         if (!using_sim_file_ && serial_.is_open()) {
-            // --- COM4 HARDWARE MODE ---
-            // 1. Send VEL command
             std::ostringstream ss;
             ss << "VEL," << current_cmd.linear << "," << current_cmd.angular << "\n";
             serial_.write_string(ss.str());
 
-            // 2. Read incoming serial line for ENC/IMU feedback
             std::string rx_line;
             while (serial_.read_line(rx_line)) {
                 parse_telemetry_line(rx_line);
             }
         } else {
-            // --- SIMULATION MODE ---
             if (!read_sim_telemetry()) {
-                // Fallback: Mirror commands directly to state if sim file is also missing
                 std::lock_guard<std::mutex> lock(state_.state_mutex);
                 state_.encoders.left_velocity  = current_cmd.linear;
                 state_.encoders.right_velocity = current_cmd.linear;
@@ -123,12 +185,11 @@ void MotorInterface::run() {
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(50)); // 20 Hz loop
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     if (serial_.is_open()) {
         serial_.write_string("VEL,0.0,0.0\n");
         serial_.close();
     }
-    std::cout << "[MotorInterface] Stopped.\n" << std::flush;
 }

@@ -504,7 +504,6 @@ CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.obj
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/initializer_list
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ios
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iosfwd
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iostream
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/istream
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/limits
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/mutex
@@ -949,6 +948,7 @@ CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj
  C:/w64devkit/include/locale.h
  C:/w64devkit/include/lzexpand.h
  C:/w64devkit/include/malloc.h
+ C:/w64devkit/include/math.h
  C:/w64devkit/include/mciapi.h
  C:/w64devkit/include/mcx.h
  C:/w64devkit/include/memoryapi.h
@@ -1129,6 +1129,7 @@ CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/range_access.h
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/refwrap.h
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/requires_hosted.h
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/specfun.h
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/std_abs.h
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/std_mutex.h
@@ -1158,6 +1159,7 @@ CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cerrno
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/chrono
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/clocale
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cmath
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/concepts
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstddef
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstdint
@@ -1207,6 +1209,18 @@ CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/string_view
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/system_error
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/thread
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/bessel_function.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/beta_function.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/ell_integral.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/exp_integral.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/gamma.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/hypergeometric.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/legendre_function.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/modified_bessel_func.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/poly_hermite.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/poly_laguerre.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/riemann_zeta.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/special_function_util.h
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tuple
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/type_traits
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/typeinfo

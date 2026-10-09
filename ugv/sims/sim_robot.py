@@ -33,8 +33,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RTK_FILE = os.path.normpath(os.path.join(HERE, "..", "rtk", "rover_pos.dat"))
-ESP_FILE = os.path.normpath(os.path.join(HERE, "..", "esp", "sim_esp.dat"))
-CMD_FILE = os.path.normpath(os.path.join(HERE, "..", "esp", "cmd_vel.dat"))
+ESP_FILE = os.path.normpath(os.path.join(HERE, "..", "sims", "sim_esp.dat"))
+CMD_FILE = os.path.normpath(os.path.join(HERE, "..", "sims", "cmd_vel.dat"))
 RTK_SIZE = 256
 ESP_SIZE = 512
 M_PER_DEG = 111320.0

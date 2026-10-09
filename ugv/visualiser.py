@@ -16,9 +16,9 @@ the GNSS file and the ESP32 file from a single robot state, so they stay in sync
 
 Reads (same files your program reads):
   ugv/rtk/rover_pos.dat   GNSS position + fix state
-  ugv/esp/sim_esp.dat     encoders + IMU
+  ugv/sims/sim_esp.dat     encoders + IMU
 Writes (arrow keys):
-  ugv/esp/cmd_vel.dat     {"linear": m/s, "angular": rad/s, "ts": unix time}
+  ugv/sims/cmd_vel.dat     {"linear": m/s, "angular": rad/s, "ts": unix time}
 
 Layout: ugv/viz/visualiser.py
 
@@ -62,8 +62,8 @@ except ImportError as e:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROVER = os.path.normpath(os.path.join(HERE,  "rtk", "rover_pos.dat"))
-DEFAULT_ESP = os.path.normpath(os.path.join(HERE,  "esp", "sim_esp.dat"))
-DEFAULT_CMD = os.path.normpath(os.path.join(HERE,  "esp", "cmd_vel.dat"))
+DEFAULT_ESP = os.path.normpath(os.path.join(HERE,  "sims", "sim_esp.dat"))
+DEFAULT_CMD = os.path.normpath(os.path.join(HERE,  "sims", "cmd_vel.dat"))
 DEFAULT_SIM = os.path.normpath(os.path.join(HERE,  "sims", "sim_robot.py"))
 CMAP_SEARCH = [
     os.path.join(HERE, "cmap.png"),
@@ -667,8 +667,8 @@ class Visualiser:
 def main():
     ap = argparse.ArgumentParser(description="Live robot + costmap visualiser with keyboard driving")
     ap.add_argument("--rover-file", default=DEFAULT_ROVER, help="GNSS shared file (default ../rtk/rover_pos.dat)")
-    ap.add_argument("--esp-file", default=DEFAULT_ESP, help="ESP32 shared file (default ../esp/sim_esp.dat)")
-    ap.add_argument("--cmd-file", default=DEFAULT_CMD, help="velocity command file (default ../esp/cmd_vel.dat)")
+    ap.add_argument("--esp-file", default=DEFAULT_ESP, help="ESP32 shared file (default ../sims/sim_esp.dat)")
+    ap.add_argument("--cmd-file", default=DEFAULT_CMD, help="velocity command file (default ../sims/cmd_vel.dat)")
     ap.add_argument("--sim-script", default=DEFAULT_SIM, help="simulator to launch (default ../sims/sim_robot.py)")
     ap.add_argument("--no-sim", action="store_true", help="don't launch the simulator")
     ap.add_argument("--no-drive", action="store_true", help="arrow keys don't write cmd_vel.dat")
