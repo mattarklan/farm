@@ -149,15 +149,7 @@ void MotorInterface::parse_telemetry_line(const std::string& raw_line) {
 }
 
 void MotorInterface::run() {
-    std::cout << "[MotorInterface] Thread running...\n" << std::flush;
-
-    if (serial_.open(com_port_, baud_rate_)) {
-        using_sim_file_ = false;
-        std::cout << "[MotorInterface] Connected on " << com_port_ << ".\n" << std::flush;
-    } else {
-        using_sim_file_ = true;
-        std::cout << "[MotorInterface] Fallback mode: Reading " << sim_file_ << "\n" << std::flush;
-    }
+    std::cout << "[MotorInterface] Thread running (Simulation mode active, ignoring sim_esp.dat)...\n" << std::flush;
 
     while (running_) {
         MotorCommand current_cmd;
@@ -167,22 +159,18 @@ void MotorInterface::run() {
             current_cmd = state_.motor_command;
         }
 
-        if (!using_sim_file_ && serial_.is_open()) {
-            std::ostringstream ss;
-            ss << "VEL," << current_cmd.linear << "," << current_cmd.angular << "\n";
-            serial_.write_string(ss.str());
+        // Convert linear and angular command to differential left/right wheel velocities
+        double wheelbase = 0.5; 
+        double left_v  = current_cmd.linear - (current_cmd.angular * wheelbase / 2.0);
+        double right_v = current_cmd.linear + (current_cmd.angular * wheelbase / 2.0);
 
-            std::string rx_line;
-            while (serial_.read_line(rx_line)) {
-                parse_telemetry_line(rx_line);
-            }
-        } else {
-            if (!read_sim_telemetry()) {
-                std::lock_guard<std::mutex> lock(state_.state_mutex);
-                state_.encoders.left_velocity  = current_cmd.linear;
-                state_.encoders.right_velocity = current_cmd.linear;
-                state_.encoders.valid          = true;
-            }
+        {
+            std::lock_guard<std::mutex> lock(state_.state_mutex);
+            state_.encoders.left_velocity  = left_v;
+            state_.encoders.right_velocity = right_v;
+            state_.encoders.left_distance  += left_v * 0.05;  // Integrate ticks over 50ms dt
+            state_.encoders.right_distance += right_v * 0.05;
+            state_.encoders.valid          = true;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

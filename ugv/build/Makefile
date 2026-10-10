@@ -128,6 +128,30 @@ rover_app/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/build
 .PHONY : rover_app/fast
 
+src/comms/udp_bus.obj: src/comms/udp_bus.cpp.obj
+.PHONY : src/comms/udp_bus.obj
+
+# target to build an object file
+src/comms/udp_bus.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj
+.PHONY : src/comms/udp_bus.cpp.obj
+
+src/comms/udp_bus.i: src/comms/udp_bus.cpp.i
+.PHONY : src/comms/udp_bus.i
+
+# target to preprocess a source file
+src/comms/udp_bus.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.i
+.PHONY : src/comms/udp_bus.cpp.i
+
+src/comms/udp_bus.s: src/comms/udp_bus.cpp.s
+.PHONY : src/comms/udp_bus.s
+
+# target to generate assembly for a file
+src/comms/udp_bus.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.s
+.PHONY : src/comms/udp_bus.cpp.s
+
 src/debug/debug_server.obj: src/debug/debug_server.cpp.obj
 .PHONY : src/debug/debug_server.obj
 
@@ -175,6 +199,30 @@ src/gps/gps_driver.s: src/gps/gps_driver.cpp.s
 src/gps/gps_driver.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.s
 .PHONY : src/gps/gps_driver.cpp.s
+
+src/localization/pose_estimator.obj: src/localization/pose_estimator.cpp.obj
+.PHONY : src/localization/pose_estimator.obj
+
+# target to build an object file
+src/localization/pose_estimator.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj
+.PHONY : src/localization/pose_estimator.cpp.obj
+
+src/localization/pose_estimator.i: src/localization/pose_estimator.cpp.i
+.PHONY : src/localization/pose_estimator.i
+
+# target to preprocess a source file
+src/localization/pose_estimator.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.i
+.PHONY : src/localization/pose_estimator.cpp.i
+
+src/localization/pose_estimator.s: src/localization/pose_estimator.cpp.s
+.PHONY : src/localization/pose_estimator.s
+
+# target to generate assembly for a file
+src/localization/pose_estimator.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.s
+.PHONY : src/localization/pose_estimator.cpp.s
 
 src/main.obj: src/main.cpp.obj
 .PHONY : src/main.obj
@@ -248,6 +296,54 @@ src/motors/serial_port.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.s
 .PHONY : src/motors/serial_port.cpp.s
 
+src/planning/local_planner.obj: src/planning/local_planner.cpp.obj
+.PHONY : src/planning/local_planner.obj
+
+# target to build an object file
+src/planning/local_planner.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj
+.PHONY : src/planning/local_planner.cpp.obj
+
+src/planning/local_planner.i: src/planning/local_planner.cpp.i
+.PHONY : src/planning/local_planner.i
+
+# target to preprocess a source file
+src/planning/local_planner.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.i
+.PHONY : src/planning/local_planner.cpp.i
+
+src/planning/local_planner.s: src/planning/local_planner.cpp.s
+.PHONY : src/planning/local_planner.s
+
+# target to generate assembly for a file
+src/planning/local_planner.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.s
+.PHONY : src/planning/local_planner.cpp.s
+
+src/planning/theta_star.obj: src/planning/theta_star.cpp.obj
+.PHONY : src/planning/theta_star.obj
+
+# target to build an object file
+src/planning/theta_star.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj
+.PHONY : src/planning/theta_star.cpp.obj
+
+src/planning/theta_star.i: src/planning/theta_star.cpp.i
+.PHONY : src/planning/theta_star.i
+
+# target to preprocess a source file
+src/planning/theta_star.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.i
+.PHONY : src/planning/theta_star.cpp.i
+
+src/planning/theta_star.s: src/planning/theta_star.cpp.s
+.PHONY : src/planning/theta_star.s
+
+# target to generate assembly for a file
+src/planning/theta_star.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.s
+.PHONY : src/planning/theta_star.cpp.s
+
 # Help Target
 help:
 	@echo The following are some of the valid targets for this Makefile:
@@ -257,12 +353,18 @@ help:
 	@echo ... edit_cache
 	@echo ... rebuild_cache
 	@echo ... rover_app
+	@echo ... src/comms/udp_bus.obj
+	@echo ... src/comms/udp_bus.i
+	@echo ... src/comms/udp_bus.s
 	@echo ... src/debug/debug_server.obj
 	@echo ... src/debug/debug_server.i
 	@echo ... src/debug/debug_server.s
 	@echo ... src/gps/gps_driver.obj
 	@echo ... src/gps/gps_driver.i
 	@echo ... src/gps/gps_driver.s
+	@echo ... src/localization/pose_estimator.obj
+	@echo ... src/localization/pose_estimator.i
+	@echo ... src/localization/pose_estimator.s
 	@echo ... src/main.obj
 	@echo ... src/main.i
 	@echo ... src/main.s
@@ -272,6 +374,12 @@ help:
 	@echo ... src/motors/serial_port.obj
 	@echo ... src/motors/serial_port.i
 	@echo ... src/motors/serial_port.s
+	@echo ... src/planning/local_planner.obj
+	@echo ... src/planning/local_planner.i
+	@echo ... src/planning/local_planner.s
+	@echo ... src/planning/theta_star.obj
+	@echo ... src/planning/theta_star.i
+	@echo ... src/planning/theta_star.s
 .PHONY : help
 
 

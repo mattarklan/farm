@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-import time
-import json
-import mmap
 import os
+import sys
+import time
 import serial
+
+# --- UDP bus (replaces the old rover_pos.dat file) ---
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from common.protocol import Publisher, ProtocolError
 
 # --- Configuration ---
 LORA_PORT = "COM3"
@@ -12,34 +15,14 @@ LORA_BAUD = 9600
 NMEA_PORT = "COM12"
 NMEA_BAUD = 115200
 
-MMAP_FILE = "rover_pos.dat"
-MMAP_SIZE = 256
+_pub = Publisher()
 
 def publish_shared_position(lat, lon, fix_type, sats, hdop, corr_age):
-    """Writes current telemetry into a 256-byte shared memory file."""
-    payload = {
-        "lat": lat,
-        "lon": lon,
-        "fix": fix_type,
-        "sats": sats,
-        "hdop": hdop,
-        "corr_age": corr_age,
-        "ts": time.time()
-    }
-    data_str = json.dumps(payload).ljust(MMAP_SIZE)
-    
-    if not os.path.exists(MMAP_FILE) or os.path.getsize(MMAP_FILE) < MMAP_SIZE:
-        with open(MMAP_FILE, "wb") as f:
-            f.write(b" " * MMAP_SIZE)
-
+    """Publish the current fix on the UDP bus (port 5007), in the format defined in common/protocol.py."""
     try:
-        with open(MMAP_FILE, "r+b") as f:
-            mm = mmap.mmap(f.fileno(), MMAP_SIZE)
-            mm.seek(0)
-            mm.write(data_str.encode('utf-8'))
-            mm.close()
-    except Exception as e:
-        print(f"[MMAP ERROR] Failed to write shared memory: {e}")
+        _pub.send("rtk", lat=lat, lon=lon, fix=fix_type, sats=sats, hdop=hdop, corr_age=corr_age)
+    except ProtocolError as e:
+        print(f"[PROTOCOL ERROR] not publishing: {e}")
 
 def open_serial_safe(port, baud):
     """Attempts to connect to a serial port continuously until successful."""
@@ -55,7 +38,7 @@ def open_serial_safe(port, baud):
 def main():
     print(f"LoRa       : {LORA_PORT} @ {LORA_BAUD}")
     print(f"NMEA/RTCM  : {NMEA_PORT} @ {NMEA_BAUD}")
-    print(f"Shared Mem : {MMAP_FILE}")
+    print("Publishing  : UDP bus, rtk on port 5007 (see common/PROTOCOL.md)")
     print("Ctrl+C to stop.\n")
 
     lora_ser = open_serial_safe(LORA_PORT, LORA_BAUD)

@@ -1,121 +1,90 @@
 #!/usr/bin/env python3
 """
-Robot visualiser + keyboard driver. Shows the robot on a costmap, live.
+Robot visualiser, teleop and click-to-drive. A pure client of the UDP bus (common/protocol.py): it
+knows nothing about whether the robot is simulated or real. Start run_sim.py (simulation) OR your
+real rover / ESP32 / lidar publishers, then start this.
 
-Two robots are drawn:
-  GOAL   (solid blue)   a smooth, high-frame-rate robot that goes exactly where you drive it.
-                        It integrates your commanded velocity (arrow keys) with the same
-                        acceleration limits as the simulator, so it is the teleop goal pose.
-  GHOST  (transparent)  where the TELEMETRY says the robot actually is (GNSS when it has a
-                        fix, otherwise wheel odometry). It is smoothed + extrapolated between
-                        updates so it glides, and it chases the goal robot. The gap between
-                        them is the tracking error / latency.
+  listens   rtk (5007)   position + fix          esp (5006)   encoders + IMU
+            lidar (5005) scans                   cmd_vel (5006)  what is being commanded
+  publishes cmd_vel      (arrow keys, or the navigator after you click the map)
 
-By default it LAUNCHES the simulator (ugv/sims/sim_robot.py). That one process writes both
-the GNSS file and the ESP32 file from a single robot state, so they stay in sync.
+What you see
+  MAP     starts all unknown (grey). It is BUILT from the lidar scans, placed at the robot's estimated
+          pose: white = free, black = wall. The robot only knows what its lidar has seen.
+  GOAL    (solid blue) a smooth robot that follows the commands at the same speed limits as the real
+          robot (common/config.py). It never waits for telemetry: it is where the robot SHOULD be.
+  GHOST   (dashed orange) where the GNSS/IMU telemetry says the robot actually is (arrives ~1 Hz, glides).
+  SCAN    red dots: the latest lidar scan, drawn around the robot.
 
-Reads (same files your program reads):
-  ugv/rtk/rover_pos.dat   GNSS position + fix state
-  ugv/sims/sim_esp.dat     encoders + IMU
-Writes (arrow keys):
-  ugv/sims/cmd_vel.dat     {"linear": m/s, "angular": rad/s, "ts": unix time}
+Driving
+  arrow keys     teleop (up/down = forward/back, left/right = turn), space = stop
+  left click     on the map: plan a path to that point on the learned map and drive it (replans as the map
+                 fills in; unknown space counts as free, so it explores towards the goal)
+  right click    or  x  : cancel.   Any arrow key also takes over from the navigator.
+  Needs an RTK fix of at least --min-fix (default Float RTK) for mapping and click-to-drive.
 
-Layout: ugv/viz/visualiser.py
+Your own Theta*:   python visualiser.py --planner my_theta:plan      (see common/planner.py for the signature)
+
+Other keys   f follow robot / whole map     c clear trails     o re-anchor odometry     g snap goal to telemetry
+             r reset the learned map        s save it (learned_map.png; black wall, white free, grey unknown)
+Mouse zoom/pan toolbar still works; click-to-drive is ignored while a toolbar tool is active.
 
   pip install matplotlib numpy pillow
-  python visualiser.py                       # launch sim + drive with arrows
-  python visualiser.py --circle 2            # sim drives a 2 m circle by itself
-  python visualiser.py --fix "Fixed RTK"     # skip the fix warm-up
-  python visualiser.py --no-sim              # don't launch a sim (real hardware / sim already running)
-  python visualiser.py --no-drive            # arrow keys do nothing (goal follows cmd_vel.dat instead)
-  python visualiser.py --cmap ../maps/cmap.png --invert
+  python visualiser.py                       # simulated or real, whatever is on the bus
+  python visualiser.py --cmap cmap.png --show-world     # also overlay the HIDDEN world (red) to check the map
+  python visualiser.py --builtin-nav         # drive with the built-in planner (default: clicks are only PUBLISHED as goals on port 5008)
+  python visualiser.py --no-drive            # view only: no keys, no clicks, never publishes
 
-Keys (click the window first so it has focus):
-  up / down      forward / reverse        left / right   turn left / right (CCW / CW)
-  space          stop                     r  snap goal robot to the telemetry ghost
-  f              follow robot / whole map c  clear trails      o  re-anchor odometry to GNSS     q  quit
+Map placement: the CENTRE of the map is --ref-lat/--ref-lon (default: ORIGIN in common/config.py).
+With --anchor-first-fix it is the first GNSS fix instead. Map size = the cmap.png size if one is
+found (next to this script, in ugv/, or the current folder), otherwise --map-size (default 40 m).
 
-Map placement: the CENTRE of cmap.png is the sim's origin (--ref-lat/--ref-lon, default
--31.9505, 115.8605). The robot starts there unless you use --start-x / --start-y (metres
-east / north of the centre) and --start-yaw (degrees, 0 = east, CCW positive).
-With --no-sim and no --ref-lat/--ref-lon, the centre is anchored to the first GNSS fix.
+Layout: ugv/visualiser.py
 """
 
 import argparse
-import json
 import math
-import mmap
 import os
-import subprocess
 import sys
 import time
 from collections import deque
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
 try:
     import numpy as np
+    import matplotlib
+    try:
+        import tkinter                                   # the telemetry panel is a separate Tk window
+        matplotlib.use("TkAgg")
+        HAVE_TK = True
+    except Exception:
+        HAVE_TK = False
     import matplotlib.pyplot as plt
-    from matplotlib.animation import FuncAnimation
     from matplotlib.patches import Polygon
     from PIL import Image
 except ImportError as e:
     sys.exit(f"missing dependency ({e}). Run: pip install matplotlib numpy pillow")
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_ROVER = os.path.normpath(os.path.join(HERE,  "rtk", "rover_pos.dat"))
-DEFAULT_ESP = os.path.normpath(os.path.join(HERE,  "sims", "sim_esp.dat"))
-DEFAULT_CMD = os.path.normpath(os.path.join(HERE,  "sims", "cmd_vel.dat"))
-DEFAULT_SIM = os.path.normpath(os.path.join(HERE,  "sims", "sim_robot.py"))
-CMAP_SEARCH = [
-    os.path.join(HERE, "cmap.png"),
-    os.path.normpath(os.path.join(HERE, "..", "cmap.png")),
-    os.path.join(os.getcwd(), "cmap.png"),
-]
-DEFAULT_LAT, DEFAULT_LON = -31.9505, 115.8605
+from common import config as cfg                               # noqa: E402
+from common.protocol import Publisher, Subscriber, FIX_RANK    # noqa: E402
+from common.estimator import PoseEstimator                        # noqa: E402
+from common.mapping import OccupancyGrid                          # noqa: E402
+from common.navigator import Navigator                            # noqa: E402
+from common.planner import load_planner                           # noqa: E402
 
-M_PER_DEG = 111320.0   # same constant the sim uses
-GNSS_STALE_S = 3.0
-ESP_STALE_S = 1.5
-CMD_TIMEOUT_S = 0.5
-CMD_SIZE = 128
+CMAP_SEARCH = [os.path.join(HERE, "cmap.png"),
+               os.path.join(os.getcwd(), "cmap.png")]
+M_PER_DEG = 111320.0
+LIDAR_STALE_S = 1.0
 ARROWS = ("up", "down", "left", "right")
+MIN_FULL_S, MAX_FULL_S = 0.4, 1.0      # full (map/panel) redraws: at most this often, at least this often
 
-FIX_COLORS = {
-    "Fixed RTK": "#2ecc71",
-    "Float RTK": "#f1c40f",
-    "DGNSS": "#3498db",
-    "3D Fix": "#e67e22",
-    "No Fix": "#e74c3c",
-}
-WHITE, GREY, RED, GREEN, HDR = "#e8e8e8", "#8a8a8a", "#ff5555", "#2ecc71", "#58a6ff"
-GOAL_COLOR, GHOST_COLOR = "#4aa3ff", "#ffb347"
-
-
-def read_dat(path):
-    """Read a space-padded JSON shared file. Returns dict or None (missing / mid-write)."""
-    try:
-        with open(path, "rb") as f:
-            raw = f.read()
-        txt = raw.decode("utf-8", "ignore").replace("\x00", "").strip()
-        return json.loads(txt) if txt else None
-    except (OSError, ValueError):
-        return None
-
-
-def write_cmd(path, lin, ang):
-    data = json.dumps({"linear": round(lin, 3), "angular": round(ang, 3), "ts": time.time()}).ljust(CMD_SIZE)
-    data = data.encode("utf-8")
-    try:
-        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        if not os.path.exists(path) or os.path.getsize(path) < CMD_SIZE:
-            with open(path, "wb") as f:
-                f.write(b" " * CMD_SIZE)
-        with open(path, "r+b") as f:
-            mm = mmap.mmap(f.fileno(), CMD_SIZE)
-            mm.seek(0)
-            mm.write(data)
-            mm.close()
-    except OSError as e:
-        print(f"[CMD ERROR] could not write {path}: {e}")
+FIX_COLORS = {"Fixed RTK": "#2ecc71", "Float RTK": "#f1c40f", "DGNSS": "#3498db", "3D Fix": "#e67e22",
+              "No Fix": "#e74c3c", "Unknown": "#95a5a6"}
+WHITE, GREY, RED, GREEN, AMBER, HDR = "#e8e8e8", "#8a8a8a", "#ff5555", "#2ecc71", "#f1c40f", "#58a6ff"
+GOAL_FC, GHOST_RGB = (0.29, 0.64, 1.0, 0.85), (1.0, 0.70, 0.28)
 
 
 def wrap(a):
@@ -131,167 +100,290 @@ def yaw_from_quat(q):
     return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 
 
-def launch_sim(args):
-    """Start sim_robot.py as a child process. Returns the Popen or None."""
-    if not os.path.exists(args.sim_script):
-        print(f"[SIM] {args.sim_script} not found - not launching a simulator (use --sim-script).")
-        return None
-    for p in (args.rover_file, args.esp_file, args.cmd_file):   # drop stale data from earlier runs
-        try:
-            os.remove(p)
-        except OSError:
-            pass
-    cmd = [
-        sys.executable, args.sim_script,
-        "--lat", str(args.ref_lat), "--lon", str(args.ref_lon),
-        "--start-x", str(args.start_x), "--start-y", str(args.start_y), "--start-yaw", str(args.start_yaw),
-        "--circle", str(args.circle), "--speed", str(args.circle_speed),
-        "--lin-accel", str(args.lin_accel), "--ang-accel", str(args.ang_accel),
-        "--wheel-base", str(args.wheel_base), "--wheel-diameter", str(args.wheel_diameter),
-        "--ticks-per-rev", str(args.ticks_per_rev),
-        "--rtk-file", args.rover_file, "--esp-file", args.esp_file, "--cmd-file", args.cmd_file,
-    ]
-    if args.fix:
-        cmd += ["--fix", args.fix]
-    print("[SIM] launching:", " ".join(cmd))
-    return subprocess.Popen(cmd)
+def find_cmap(args):
+    if args.cmap:
+        return args.cmap if os.path.exists(args.cmap) else None
+    return next((p for p in CMAP_SEARCH if os.path.exists(p)), None)
 
 
-def stop_sim(proc):
-    if proc is not None and proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+class SidePanel:
+    """Telemetry text in its own scrollable window (so redrawing it never costs the map any time)."""
+
+    KEYS = {"Up": "up", "Down": "down", "Left": "left", "Right": "right", "space": " ", "x": "x"}
+
+    def __init__(self, root, on_press, on_release):
+        import tkinter as tk
+        import tkinter.font as tkfont
+        self.tk = tk
+        self.top = tk.Toplevel(root)
+        self.top.title("UGV telemetry")
+        sw = self.top.winfo_screenwidth()
+        self.top.geometry(f"430x560+{max(0, sw - 450)}+40")      # right-hand edge of the screen, so it does not cover the map
+        self.top.configure(bg="#111")
+        bar = tk.Scrollbar(self.top)
+        bar.pack(side="right", fill="y")
+        fam = "Consolas" if "Consolas" in tkfont.families() else "Courier"
+        self.text = tk.Text(self.top, bg="#111", fg=WHITE, font=(fam, 10), width=48, height=30, wrap="none",
+                            borderwidth=0, highlightthickness=0, cursor="arrow", yscrollcommand=bar.set,
+                            state="disabled", spacing1=1)
+        self.text.pack(side="left", fill="both", expand=True)
+        bar.config(command=self.text.yview)
+        self._tags = set()
+        self._last = None
+
+        def fwd(handler):
+            def f(ev):
+                k = self.KEYS.get(ev.keysym)
+                if k:
+                    handler(type("Ev", (), {"key": k})())
+                    return "break"
+            return f
+        for w in (self.top, self.text):                     # the arrow keys still drive the robot from this window
+            w.bind("<KeyPress>", fwd(on_press))
+            w.bind("<KeyRelease>", fwd(on_release))
+        self.text.bind("<Button-1>", lambda e: self.text.focus_set())
+
+    def set_rows(self, rows):
+        if rows == self._last:
+            return
+        self._last = list(rows)
+        t = self.text
+        top_frac = t.yview()[0]
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        for txt, col in rows:
+            if col not in self._tags:
+                t.tag_configure(col, foreground=col)
+                self._tags.add(col)
+            t.insert("end", txt + "\n", col)
+        t.configure(state="disabled")
+        t.yview_moveto(top_frac)                            # keep the scroll position you chose
 
 
 class Visualiser:
-    def __init__(self, args, sim_proc):
+    def __init__(self, args):
         self.a = args
-        self.sim = sim_proc
         self.ticks_per_m = args.ticks_per_rev / (math.pi * args.wheel_diameter)
-        self.ref = (args.ref_lat, args.ref_lon) if args.ref_lat is not None and args.ref_lon is not None else None
-        # where odometry starts until GNSS gives us a position to anchor to
-        self.odom_origin = [args.start_x, args.start_y] if sim_proc is not None else [0.0, 0.0]
+        self.ref = None if args.anchor_first_fix else (args.ref_lat, args.ref_lon)
+        self.min_rank = FIX_RANK[args.min_fix]
+        self.gnss_stale = max(3.0, 2.5 / args.gnss_hz)
+        self.esp_stale = max(2.5, 2.5 / args.esp_hz)
 
-        # costmap: cost 0 (free) .. 255 (lethal)
-        self.cost = None
-        path = args.cmap or next((p for p in CMAP_SEARCH if os.path.exists(p)), None)
-        if path and os.path.exists(path):
-            gray = np.asarray(Image.open(path).convert("L"), dtype=np.uint8)
-            self.cost = gray.copy() if args.invert else (255 - gray)
-            h, w = self.cost.shape
-            self.left, self.top = -w * args.res / 2, h * args.res / 2
-            self.extent = (self.left, -self.left, -self.top, self.top)
-            print(f"Costmap: {path}  {w}x{h}px = {w * args.res:.1f} x {h * args.res:.1f} m")
+        # the bus
+        self.sub = Subscriber(["rtk", "esp", "lidar", "cmd_vel", "path", "goal"])
+        self.pub = Publisher()
+
+        # the learned map. cmap.png (if present) is only used for its SIZE and the optional --show-world overlay
+        self.world = None
+        path = args.cmap_path
+        if path:
+            im = Image.open(path)
+            if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):   # transparent = free
+                im = im.convert("RGBA")
+                bg = Image.new("RGBA", im.size, (0, 0, 0, 255) if args.invert else (255, 255, 255, 255))
+                bg.alpha_composite(im)
+                im = bg
+            gray = np.asarray(im.convert("L"), dtype=np.uint8)
+            self.world = gray.copy() if args.invert else (255 - gray)       # 255 = wall
+            mh, mw = self.world.shape
+            wm, hm = mw * args.res, mh * args.res
+            print(f"World image {os.path.abspath(path)}: {mw}x{mh}px = {wm:.1f} x {hm:.1f} m (hidden from the robot; sets the map size)")
         else:
-            print("Costmap: cmap.png not found (searched next to this script, ../, and cwd) - showing blank grid. Use --cmap.")
-            self.extent = (-10, 10, -10, 10)
+            wm = hm = args.map_size
+            print(f"No cmap.png found: learned map covers {wm:.0f} x {hm:.0f} m (use --map-size to change)")
+        self.grid = OccupancyGrid(wm, hm, args.res)
+        self.extent = self.grid.extent
+
+        # navigation
+        self.est = PoseEstimator()
+        if args.planner:
+            load_planner(args.planner)                                  # fail now, not in the planner process, if it can't load
+        self.nav = Navigator(self.grid, args.planner, args.max_speed, args.max_turn, plan_res=args.plan_res,
+                             inflate_m=args.inflate, replan_s=args.replan, lookahead=args.lookahead,
+                             goal_tol=args.goal_tol, stop_dist=args.stop_dist)
+        self.nav_goal_xy = None
+        self.builtin = args.builtin_nav   # False: clicks are PUBLISHED as goals for an external planner
+        self.ext_path = None
+        self.last_pose_pub = 0.0
+        self.last_panel = 0.0
+        self.msg, self.msg_until = "", 0.0
 
         # telemetry state
-        self.gpos = None
-        self.gfix = "No Fix"
+        self.rv = self.es = None
+        self.gpos, self.g_ts, self.gfix = None, None, "No Fix"
         self.last_rts = None
-        self.odom = None
-        self.odom_anchored = False
-        self.prev = None
-        self.last_seq = None
-        self.o_yaw = math.radians(args.start_yaw) if sim_proc is not None else 0.0
-        self.have_yaw = False
-        self.g_t = self.o_t = self.e_t = 0.0      # monotonic time of last GNSS / odom / ESP update
-        self.meas_v = self.meas_w = 0.0           # measured speed (m/s) and yaw rate (rad/s)
-        self.g_trail = deque(maxlen=args.trail)
-        self.o_trail = deque(maxlen=args.trail)
+        self.odom, self.odom_anchored, self.prev, self.last_seq = None, False, None, None
+        self.o_yaw, self.yaw_ts, self.have_yaw, self.e_ts = 0.0, None, False, None
+        self.v_meas = self.w_meas = 0.0
+        self.g_trail, self.o_trail = deque(maxlen=args.trail), deque(maxlen=args.trail)
         self.follow = True
+        self.tel = None                  # (x, y) best raw telemetry position (GNSS, else odometry)
+        self.ghost = None                # [x, y, yaw] smoothed telemetry pose for display
 
-        # goal robot (smooth, from commands) and telemetry ghost
-        self.goal = [args.start_x, args.start_y, math.radians(args.start_yaw)] if sim_proc is not None else None
-        self.gv = self.gw = 0.0
+        # lidar
+        self.lidar_ang = self.lidar_dist = self.lidar_ts = None
+        self.lidar_seq = self.map_seq = 0
+        self.lidar_times = deque(maxlen=200)
+        self.front_min = None
+        self.lidar_near = 0.0            # fraction of the last scan closer than 0.3 m
+
+        # goal robot [x, y, yaw, v, w] and the commands it follows
+        self.goal = None
+        self.disp = None                 # what is drawn: best estimate of the real pose NOW, low-passed so it glides
         self.goal_trail = deque(maxlen=args.trail)
-        self.ghost = None
-        self.t_last = time.monotonic()
-        self._panel_t = 0.0
+        self.synced = False              # goal re-snapped to telemetry once the fix is good
+        self.cmd_seen = (0.0, 0.0, -1e9)  # (linear, angular, arrival monotonic) of the latest cmd_vel on the bus
+        self.t_last = None
 
-        # keyboard control
-        self.keys = set()
-        self.released = {}
-        self.cmd = (0.0, 0.0)
-        self.cmd_active = False
+        # redraw bookkeeping
+        self.bg = None
+        self.last_full = -1e9
+        self.need_full = True
+
+        # keyboard
+        self.keys, self.released = set(), {}
+        self.cmd, self.cmd_active = (0.0, 0.0), False
 
         self._build_figure()
 
-    # ---------- figure ----------
-    def _footprint(self, x, y, yaw):
-        c, s = math.cos(yaw), math.sin(yaw)
-        hl, hw = self.a.robot_length / 2, self.a.robot_width / 2
-        pts = [(hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw)]
-        return [(x + px * c - py * s, y + px * s + py * c) for px, py in pts]
-
-    def _heading_pts(self, x, y, yaw):
-        reach = self.a.robot_length / 2 + 0.15
-        return [x, x + reach * math.cos(yaw)], [y, y + reach * math.sin(yaw)]
-
+    # ================================================================= figure
     def _build_figure(self):
         plt.style.use("dark_background")
-        # free up matplotlib's default shortcuts (arrows, f, c, o, ...) - keep only quit
-        for k in list(plt.rcParams.keys()):
+        for k in list(plt.rcParams.keys()):                 # free up matplotlib's default key shortcuts
             if k.startswith("keymap.") and k != "keymap.quit":
                 plt.rcParams[k] = []
-        self.fig = plt.figure(figsize=(13, 8))
+        self.fig = plt.figure(figsize=(13, 9))
         try:
             self.fig.canvas.manager.set_window_title("UGV visualiser")
         except Exception:
             pass
-        self.ax = self.fig.add_axes([0.06, 0.07, 0.62, 0.88])
+        self.tkp = None
+        if HAVE_TK:
+            try:
+                self.tkp = SidePanel(self.fig.canvas.manager.window, self._on_press, self._on_release)
+            except Exception as e:
+                print(f"(telemetry window unavailable: {e}; using the in-figure panel)")
+                self.tkp = None
+        self.ax = self.fig.add_axes([0.06, 0.07, 0.62, 0.88] if self.tkp is None else [0.055, 0.07, 0.93, 0.88])
         ax = self.ax
-        if self.cost is not None:
-            ax.imshow(255 - self.cost, extent=self.extent, origin="upper", cmap="gray",
-                      vmin=0, vmax=255, interpolation="nearest", zorder=0)
-            l, r, b, t = self.extent
-            ax.plot([l, r, r, l, l], [b, b, t, t, b], color="#555", lw=1, zorder=1)
+        self.map_im = ax.imshow(self.grid.image(), extent=self.extent, origin="upper", cmap="gray",
+                                vmin=0, vmax=1, interpolation="nearest", zorder=0)
+        l, r, b, t = self.extent
+        ax.plot([l, r, r, l, l], [b, b, t, t, b], color="#555", lw=1, zorder=1)
+        if self.a.show_world and self.world is not None:     # ground truth, for checking the learned map
+            rgba = np.zeros(self.world.shape + (4,), np.float32)
+            rgba[..., 0] = 1.0
+            rgba[..., 3] = np.where(self.world > 127, 0.35, 0.0)
+            ax.imshow(rgba, extent=self.extent, origin="upper", interpolation="nearest", zorder=1)
         ax.set_aspect("equal", adjustable="box")
         ax.grid(True, alpha=0.25, zorder=1)
         ax.set_xlabel("East (m)")
         ax.set_ylabel("North (m)")
-        ax.set_title("Goal (solid) vs telemetry ghost (transparent)   |   white = free, black = obstacle", fontsize=10)
+        ax.set_title("Learned map (grey = unknown, white = free, black = wall)  -  click to drive", fontsize=9)
 
-        self.goal_line, = ax.plot([], [], ":", color="#ffffff", lw=1.2, alpha=0.7, label="Goal path", zorder=3)
-        self.g_line, = ax.plot([], [], "-", color="#2ecc71", lw=1.3, alpha=0.7, label="GNSS trail", zorder=3)
-        self.o_line, = ax.plot([], [], "--", color="#e056fd", lw=1.3, alpha=0.8, label="Odometry trail", zorder=3)
-        self.g_dot, = ax.plot([], [], "o", ms=6, mec="w", mew=0.8, zorder=5, label="Raw GNSS")
-        self.o_dot, = ax.plot([], [], "D", ms=5, color="#e056fd", mec="w", mew=0.8, zorder=5, label="Raw odometry")
+        # slow layer: redrawn when new telemetry arrives (~1 Hz)
+        self.g_line, = ax.plot([], [], "-", color="#2ecc71", lw=1.5, alpha=0.8, label="GNSS trail", zorder=3)
+        self.o_line, = ax.plot([], [], "--", color="#e056fd", lw=1.5, alpha=0.9, label="Odometry trail", zorder=3)
+        self.g_dot, = ax.plot([], [], "o", ms=7, mec="w", mew=1, zorder=6, label="GNSS position")
+        self.o_dot, = ax.plot([], [], "D", ms=5, color="#e056fd", mec="w", mew=1, zorder=6, label="Odometry position")
 
-        self.err_line, = ax.plot([], [], "-", color="#ffe066", lw=1.2, alpha=0.9, zorder=5)
-        self.ghost_body = Polygon(np.zeros((4, 2)), closed=True, fc=GHOST_COLOR, ec=GHOST_COLOR, alpha=0.35,
-                                  lw=1.5, ls="--", zorder=6, label="Telemetry ghost")
+        # fast layer (animated=True: blitted every frame)
+        self.goal_line, = ax.plot([], [], "-", color="#4aa3ff", lw=1.0, alpha=0.7, label="Goal trail", zorder=2, animated=True)
+        self.path_line, = ax.plot([], [], "-", color="#00e5ff", lw=2.0, alpha=0.9, label="Planned path", zorder=3, animated=True)
+        self.goal_mark, = ax.plot([], [], "*", ms=16, color="#00e5ff", mec="w", mew=1, zorder=7, label="Nav goal", animated=True)
+        self.lidar_sc = ax.scatter([], [], s=5, c="#ff4d4d", linewidths=0, zorder=4, label="LiDAR scan", animated=True)
+        self.ghost_body = Polygon(np.zeros((4, 2)), closed=True, fc=GHOST_RGB + (0.30,), ec=GHOST_RGB + (0.95,),
+                                  ls="--", lw=1.8, zorder=4, label="Telemetry ghost (actual)", animated=True)
         self.ghost_body.set_visible(False)
         ax.add_patch(self.ghost_body)
-        self.ghost_head, = ax.plot([], [], "-", color=GHOST_COLOR, lw=2, alpha=0.8, zorder=7)
-
-        self.goal_body = Polygon(np.zeros((4, 2)), closed=True, fc=GOAL_COLOR, ec="w", alpha=0.85,
-                                 lw=1.5, zorder=8, label="Goal (smooth, teleop)")
+        self.ghost_head, = ax.plot([], [], "--", color=GHOST_RGB, lw=2, zorder=4, animated=True)
+        self.goal_body = Polygon(np.zeros((4, 2)), closed=True, fc=GOAL_FC, ec="w", lw=1.5, zorder=5,
+                                 label="Goal pose (smooth)", animated=True)
         self.goal_body.set_visible(False)
         ax.add_patch(self.goal_body)
-        self.goal_head, = ax.plot([], [], "-", color="w", lw=2.5, zorder=9)
+        self.goal_head, = ax.plot([], [], "-", color="w", lw=2.5, zorder=5, animated=True)
+        self.nav_text = ax.text(0.01, 0.012, "", transform=ax.transAxes, fontsize=9, color="#00e5ff", va="bottom",
+                                family="monospace", bbox=dict(fc="black", ec="none", alpha=0.6, pad=3),
+                                zorder=9, animated=True)
+        self.slow_artists = [self.map_im, self.g_line, self.o_line, self.g_dot, self.o_dot]
+        for a in self.slow_artists:                          # drawn at ~1 Hz into a cached layer, not on every frame
+            a.set_animated(True)
+        self.fast_artists = (self.goal_line, self.path_line, self.lidar_sc, self.ghost_body, self.ghost_head,
+                             self.goal_body, self.goal_head, self.goal_mark, self.nav_text)
 
-        ax.legend(loc="upper right", fontsize=8, framealpha=0.5)
+        # colour key (a real matplotlib legend is slow to draw and clipped at this size)
+        for i, (txt, col) in enumerate((("blue = goal pose (smooth)", "#4aa3ff"), ("dashed = telemetry ghost", "#c8a2ff"),
+                                        ("green = GNSS trail", "#2ecc71"), ("magenta = odometry", "#e056fd"),
+                                        ("cyan = planned path", "#00e5ff"), ("red dots = lidar", "#ff4d4d"))):
+            ax.text(0.99, 0.985 - i * 0.03, txt, transform=ax.transAxes, ha="right", va="top", fontsize=7, color=col,
+                    bbox=dict(fc="black", ec="none", alpha=0.5, pad=1))
         ax.set_xlim(-6, 6)
         ax.set_ylim(-6, 6)
 
-        panel = self.fig.add_axes([0.70, 0.05, 0.29, 0.90])
-        panel.axis("off")
-        self.rows = [panel.text(0.0, 1 - i * 0.0245, "", family="monospace", fontsize=9, va="top",
-                                transform=panel.transAxes, color=WHITE) for i in range(40)]
-        self.fig.canvas.mpl_connect("key_press_event", self._on_press)
-        self.fig.canvas.mpl_connect("key_release_event", self._on_release)
+        # fallback only (no Tk): panel inside the figure, one text object per colour
+        self.panel_txt = {}
+        self.panel_ax = None
+        if self.tkp is None:
+            self.panel_ax = self.fig.add_axes([0.70, 0.04, 0.29, 0.92])
+            self.panel_ax.axis("off")
+        c = self.fig.canvas
+        c.mpl_connect("key_press_event", self._on_press)
+        c.mpl_connect("key_release_event", self._on_release)
+        c.mpl_connect("button_press_event", self._on_click)
+        c.mpl_connect("draw_event", self._on_draw)
+        c.mpl_connect("close_event", self._on_close)
 
-        # command publisher runs on its own 20 Hz timer, independent of redraw rate
-        self.timer = self.fig.canvas.new_timer(interval=50)
-        self.timer.add_callback(self._control_tick)
-        self.timer.start()
+        self.ctl_timer = c.new_timer(interval=50)           # command publisher: 20 Hz
+        self.ctl_timer.add_callback(self._control_tick)
+        self.ctl_timer.start()
+        self.frame_timer = c.new_timer(interval=max(5, int(1000 / self.a.fps)))
+        self.frame_timer.add_callback(self.tick)
+        self.frame_timer.start()
 
-    # ---------- keyboard ----------
+    def _on_close(self, _ev):
+        self.nav.close()
+        if self.cmd_active and self.a.drive:                 # leave the robot stopped
+            try:
+                self.pub.send("cmd_vel", linear=0.0, angular=0.0)
+            except Exception:
+                pass
+
+    # ================================================================= blitting
+    def _on_draw(self, _ev):
+        # layers: static (axes, ticks, legend)  ->  slow (map, trails, panel; ~1 Hz)  ->  fast (robots, scan; every frame)
+        cv = self.fig.canvas
+        self.bg_static = cv.copy_from_bbox(self.fig.bbox)
+        self._draw_slow()
+        self.bg = cv.copy_from_bbox(self.fig.bbox)
+        self._draw_fast()
+
+    def _draw_slow(self):
+        for a in self.slow_artists:
+            self.ax.draw_artist(a)
+        for t in self.panel_txt.values():
+            self.panel_ax.draw_artist(t)
+
+    def _refresh_slow(self):
+        cv = self.fig.canvas
+        cv.restore_region(self.bg_static)
+        self._draw_slow()
+        self.bg = cv.copy_from_bbox(self.fig.bbox)
+        self._blit()
+
+    def _draw_fast(self):
+        for a in self.fast_artists:
+            self.ax.draw_artist(a)
+
+    def _blit(self):
+        cv = self.fig.canvas
+        cv.restore_region(self.bg)
+        self._draw_fast()
+        cv.blit(self.fig.bbox)
+
+    # ================================================================= input
+    def say(self, text, secs=4.0):
+        self.msg, self.msg_until = text, time.monotonic() + secs
+
     def _on_press(self, ev):
         k = ev.key
         if k in ARROWS:
@@ -300,26 +392,96 @@ class Visualiser:
         elif k == " ":
             self.keys.clear()
             self.released.clear()
+            self.cancel_nav()
+        elif k == "x":
+            self.cancel_nav()
+            self.say("navigation cancelled")
         elif k == "c":
             self.g_trail.clear()
             self.o_trail.clear()
             self.goal_trail.clear()
+            self.need_full = True
         elif k == "f":
             self.follow = not self.follow
+            self._lim = None
+            self.need_full = True
         elif k == "o":
             if self.gpos is not None and self.odom is not None:
                 self.odom = list(self.gpos)
                 self.o_trail.clear()
+                self.need_full = True
+        elif k == "g":
+            self.snap_goal()
         elif k == "r":
-            if self.ghost is not None:
-                self.goal = list(self.ghost)
-                self.gv = self.gw = 0.0
-                self.goal_trail.clear()
+            self.grid.reset()
+            self.need_full = True
+            self.say("map reset")
+        elif k == "s":
+            try:
+                self.grid.save_png(self.a.save_map)
+                self.say(f"saved {os.path.abspath(self.a.save_map)}", 6)
+                print(f"[MAP] saved {os.path.abspath(self.a.save_map)}")
+            except OSError as e:
+                self.say(f"could not save map: {e}", 6)
 
     def _on_release(self, ev):
         if ev.key in ARROWS:
-            # deferred: some platforms send release+press pairs while a key auto-repeats
-            self.released[ev.key] = time.monotonic()
+            self.released[ev.key] = time.monotonic()     # deferred: key auto-repeat sends release+press pairs
+
+    def _on_click(self, ev):
+        if ev.inaxes is not self.ax or ev.xdata is None:
+            return
+        tb = getattr(self.fig.canvas, "toolbar", None)
+        if tb is not None and str(getattr(tb, "mode", "")):   # zoom / pan tool active: not a drive click
+            return
+        if ev.button == 3:
+            self.cancel_nav()
+            self.say("navigation cancelled")
+        elif ev.button == 1:
+            self.start_nav(ev.xdata, ev.ydata)
+
+    def start_nav(self, x, y):
+        if not self.a.drive:
+            self.say("view-only mode (--no-drive): not driving")
+            return
+        self.keys.clear()
+        try:
+            self.pub.send("goal", action="go", x=x, y=y)                 # always tell the bus; an external planner picks it up
+        except Exception as e:
+            self.say(f"could not publish the goal: {e}", 6)
+        self.nav_goal_xy = (x, y)
+        if not self.builtin:
+            self.ext_path = None
+            self.say(f"goal ({x:+.1f}, {y:+.1f}) sent on the bus (port 5008) for your planner")
+            return
+        pose, why = self.nav_pose()
+        if pose is None:
+            self.say(f"can't navigate yet: {why}", 6)
+            return
+        self.nav.set_goal(x, y, pose)
+        self.say(f"driving to ({x:+.1f}, {y:+.1f})")
+
+    def cancel_nav(self, publish=True):
+        self.nav.cancel()
+        self.nav_goal_xy = None
+        self.ext_path = None
+        if publish and self.a.drive:
+            try:
+                self.pub.send("goal", action="cancel")
+            except Exception:
+                pass
+
+    def nav_pose(self):
+        """Pose to navigate/map from, or (None, why)."""
+        now = time.time()
+        if not self.est.has_fix():
+            return None, "no GNSS position yet"
+        age = self.est.fix_age(now)
+        if age is None or age > self.gnss_stale:
+            return None, "GNSS data is stale"
+        if FIX_RANK.get(self.gfix, 0) < self.min_rank:
+            return None, f"waiting for {self.a.min_fix} (have {self.gfix})"
+        return self.est.pose_at(now), ""
 
     def _control_tick(self):
         if not self.a.drive:
@@ -331,176 +493,309 @@ class Visualiser:
                 del self.released[k]
         lin = (("up" in self.keys) - ("down" in self.keys)) * self.a.max_speed
         ang = (("left" in self.keys) - ("right" in self.keys)) * self.a.max_turn
-        active = bool(lin or ang)
-        if active or self.cmd_active:       # keep sending while driving, plus one final zero
-            write_cmd(self.a.cmd_file, lin, ang)
-        self.cmd_active = active
-        self.cmd = (lin, ang)
+        cmd = None
+        if lin or ang:
+            if self.nav.active or self.nav_goal_xy:
+                self.cancel_nav()
+                self.say("teleop took over")
+            cmd = (lin, ang)
+        elif self.nav.active:
+            pose, why = self.nav_pose()
+            if pose is None:
+                cmd = (0.0, 0.0)
+                self.nav.reason = why
+            else:
+                cmd = self.nav.update(pose, self.front_min)
+        t = time.monotonic()
+        if t - self.last_pose_pub >= 0.1:                    # tell an external planner where the robot is (10 Hz)
+            self.last_pose_pub = t
+            pose, _why = self.nav_pose()
+            if pose is not None:
+                try:
+                    self.pub.send("pose", x=pose[0], y=pose[1], yaw=pose[2], fix=self.gfix)
+                except Exception:
+                    pass
+        if cmd is not None:
+            self.pub.send("cmd_vel", linear=cmd[0], angular=cmd[1])
+            self.cmd, self.cmd_active = cmd, True
+        elif self.cmd_active:                               # just stopped: one final zero
+            self.pub.send("cmd_vel", linear=0.0, angular=0.0)
+            self.cmd, self.cmd_active = (0.0, 0.0), False
 
-    def current_cmd(self):
-        """Velocity command the goal robot should follow: (linear m/s, angular rad/s)."""
-        if self.sim is not None and self.a.circle > 0:
-            return self.a.circle_speed, self.a.circle_speed / self.a.circle
-        if self.a.drive:
-            return self.cmd
-        d = read_dat(self.a.cmd_file)          # external program is driving: follow its cmd_vel.dat
-        if d and time.time() - float(d.get("ts", 0)) <= CMD_TIMEOUT_S:
-            return float(d.get("linear", 0.0)), float(d.get("angular", 0.0))
-        return 0.0, 0.0
+    # ================================================================= goal robot
+    def goal_cmd(self):
+        lin, ang, t = self.cmd_seen
+        if time.monotonic() - t > cfg.CMD_TIMEOUT:
+            return 0.0, 0.0
+        return clamp(lin, -self.a.max_speed, self.a.max_speed), clamp(ang, -self.a.max_turn, self.a.max_turn)
 
-    # ---------- data ----------
+    def step_goal(self, dt, now):
+        g = self.goal
+        if g is None or dt <= 0:
+            return
+        cv, cw = self.goal_cmd()
+        g[3] += clamp(cv - g[3], -self.a.lin_accel * dt, self.a.lin_accel * dt)
+        g[4] += clamp(cw - g[4], -self.a.ang_accel * dt, self.a.ang_accel * dt)
+        mid = g[2] + g[4] * dt / 2
+        g[0] += g[3] * math.cos(mid) * dt
+        g[1] += g[3] * math.sin(mid) * dt
+        g[2] = wrap(g[2] + g[4] * dt)
+        self.est.push_model(now, g[0], g[1], g[2])
+        # drawn pose = telemetry + the model's motion since the sample (so it can't wander off), glided at 30 fps
+        est = self.est.pose_at(now) or (g[0], g[1], g[2])
+        d = self.disp
+        if d is None:
+            d = self.disp = list(est)
+        else:
+            k = 1 - math.exp(-dt / 0.3)
+            d[0] += (est[0] - d[0]) * k
+            d[1] += (est[1] - d[1]) * k
+            d[2] = wrap(d[2] + wrap(est[2] - d[2]) * k)
+        if not self.goal_trail or math.hypot(d[0] - self.goal_trail[-1][0], d[1] - self.goal_trail[-1][1]) > 0.02:
+            self.goal_trail.append((d[0], d[1]))
+
+    def snap_goal(self):
+        """Put the goal robot exactly where the telemetry says the robot is."""
+        if not self.est.has_fix():
+            return
+        t_pos, x, y, t_yaw, yaw = self.est.fix
+        self.goal = [x, y, yaw, 0.0, 0.0]
+        self.disp = [x, y, yaw]
+        self.est.reset_model()
+        self.est.push_model(time.time(), x, y, yaw)
+        self.goal_trail.clear()
+
+    def footprint(self, x, y, yaw):
+        c, s = math.cos(yaw), math.sin(yaw)
+        hl, hw = self.a.robot_length / 2, self.a.robot_width / 2
+        poly = [(x + px * c - py * s, y + px * s + py * c) for px, py in ((hl, hw), (hl, -hw), (-hl, -hw), (-hl, hw))]
+        return poly, ([x, x + (hl + 0.15) * c], [y, y + (hl + 0.15) * s])
+
+    # ================================================================= bus messages
     def to_local(self, lat, lon):
         lat0, lon0 = self.ref
-        return ((lon - lon0) * M_PER_DEG * math.cos(math.radians(lat0)), (lat - lat0) * M_PER_DEG)
+        return (lon - lon0) * M_PER_DEG * math.cos(math.radians(lat0)), (lat - lat0) * M_PER_DEG
 
-    def process_rover(self, rv):
-        fix = rv.get("fix", "No Fix")
-        lat, lon = rv.get("lat", 0.0), rv.get("lon", 0.0)
-        self.gfix = fix
-        if fix == "No Fix" or (lat == 0 and lon == 0):
+    def _refresh_fix(self):
+        if self.gpos is not None and self.yaw_ts is not None:
+            self.est.set_fix(self.g_ts, self.gpos[0], self.gpos[1], self.yaw_ts, self.o_yaw)
+
+    def on_rtk(self, m):
+        self.rv = m
+        self.gfix = m["fix"]
+        if m["fix"] == "No Fix" or (m["lat"] == 0 and m["lon"] == 0):
             self.gpos = None
             return
         if self.ref is None:
-            self.ref = (lat, lon)
-            print(f"Map centre anchored at first fix: {lat:.7f}, {lon:.7f}")
-        self.gpos = self.to_local(lat, lon)
-        ts = rv.get("ts")
-        if ts != self.last_rts:
-            self.last_rts = ts
-            self.g_t = time.monotonic()
-            self.g_trail.append(self.gpos)
+            self.ref = (m["lat"], m["lon"])
+            print(f"Map centre anchored at first fix: {m['lat']:.7f}, {m['lon']:.7f}")
+        self.gpos, self.g_ts = self.to_local(m["lat"], m["lon"]), m["ts"]
+        self.g_trail.append(self.gpos)
+        self._refresh_fix()
 
-    def process_esp(self, es):
-        seq = es.get("seq")
-        if seq is None or seq == self.last_seq:
+    def on_esp(self, m):
+        self.es = m
+        seq = m["seq"]
+        if seq == self.last_seq:
             return
-        if self.last_seq is not None and seq < self.last_seq:   # sender restarted
+        if self.last_seq is not None and seq < self.last_seq:     # sender restarted
             self.prev = None
         self.last_seq = seq
-        enc = es.get("enc", {})
-        L, R = enc.get("left_ticks"), enc.get("right_ticks")
-        if L is None or R is None:
-            return
-        imu = es.get("imu", {})
+        enc, imu = m["enc"], m["imu"]
+        L, R = enc["left_ticks"], enc["right_ticks"]
+        self.e_ts = m["ts"]
+        self.v_meas = ((enc["left_vel"] + enc["right_vel"]) / 2) / self.ticks_per_m
+        self.w_meas = imu["gyro"][2]
         q = imu.get("quat")
-        yaw = yaw_from_quat(q) if q and len(q) == 4 else None
+        yaw = yaw_from_quat(q) if q else None
         if yaw is not None:
             self.have_yaw = True
-        self.e_t = time.monotonic()
-        self.meas_v = ((enc.get("left_vel", 0.0) + enc.get("right_vel", 0.0)) / 2) / self.ticks_per_m
-        gyro = imu.get("gyro")
-        self.meas_w = gyro[2] if gyro and len(gyro) == 3 else 0.0
-
         if self.prev is None:
             self.prev = (L, R, yaw)
             if self.odom is None:
-                self.odom = list(self.odom_origin)
+                self.odom = [0.0, 0.0]
             if yaw is not None:
                 self.o_yaw = yaw
-            self.o_t = self.e_t
-            return
-
-        pl, pr, pyaw = self.prev
-        dl, dr = (L - pl) / self.ticks_per_m, (R - pr) / self.ticks_per_m
-        d = (dl + dr) / 2
-        if yaw is not None:
-            base = pyaw if pyaw is not None else yaw
-            mid = base + wrap(yaw - base) / 2
-            self.o_yaw = yaw
         else:
-            dth = (dr - dl) / self.a.wheel_base
-            mid = self.o_yaw + dth / 2
-            self.o_yaw += dth
-        self.odom[0] += d * math.cos(mid)
-        self.odom[1] += d * math.sin(mid)
-        self.prev = (L, R, yaw)
-        self.o_t = self.e_t
-        self.o_trail.append(tuple(self.odom))
-
-    def cost_at(self, x, y):
-        if self.cost is None:
-            return None
-        col = int((x - self.left) / self.a.res)
-        row = int((self.top - y) / self.a.res)
-        h, w = self.cost.shape
-        if 0 <= row < h and 0 <= col < w:
-            return float(self.cost[row, col]) / 255 * 100
-        return -1.0   # off map
-
-    # ---------- per-frame models ----------
-    def telemetry_target(self, now_m, g_fresh):
-        """Best telemetry pose (x, y, yaw), extrapolated forward from the last sample using the
-        measured speed and yaw rate so it moves continuously between 4-5 Hz updates."""
-        if g_fresh and self.gpos is not None:
-            bx, by = self.gpos
-            t0 = self.g_t
-        elif self.odom is not None:
-            bx, by = self.odom
-            t0 = self.o_t
-        else:
-            return None
-        ey = clamp(now_m - self.e_t, 0.0, 0.5) if self.e_t else 0.0
-        yaw = self.o_yaw + self.meas_w * ey
-        ex = clamp(now_m - t0, 0.0, 0.5)
-        return bx + self.meas_v * ex * math.cos(yaw), by + self.meas_v * ex * math.sin(yaw), yaw
-
-    def step_models(self, dt, now_m, g_fresh):
-        # ghost: low-pass toward the telemetry target
-        tgt = self.telemetry_target(now_m, g_fresh)
-        if tgt is not None:
-            if self.ghost is None:
-                self.ghost = list(tgt)
+            pl, pr, pyaw = self.prev
+            dl, dr = (L - pl) / self.ticks_per_m, (R - pr) / self.ticks_per_m
+            d = (dl + dr) / 2
+            if yaw is not None:
+                base = pyaw if pyaw is not None else yaw
+                mid = base + wrap(yaw - base) / 2
+                self.o_yaw = yaw
             else:
-                k = 1.0 - math.exp(-dt / max(self.a.ghost_tau, 1e-3))
-                self.ghost[0] += (tgt[0] - self.ghost[0]) * k
-                self.ghost[1] += (tgt[1] - self.ghost[1]) * k
-                self.ghost[2] = wrap(self.ghost[2] + wrap(tgt[2] - self.ghost[2]) * k)
-        # goal: first appearance snaps to the ghost when there is no known start pose
-        if self.goal is None and self.ghost is not None:
-            self.goal = list(self.ghost)
-        if self.goal is None:
-            return
-        cv, cw = self.current_cmd()
-        lv, lw = self.a.lin_accel * dt, self.a.ang_accel * dt
-        self.gv += clamp(cv - self.gv, -lv, lv)
-        self.gw += clamp(cw - self.gw, -lw, lw)
-        mid = self.goal[2] + self.gw * dt / 2
-        self.goal[0] += self.gv * math.cos(mid) * dt
-        self.goal[1] += self.gv * math.sin(mid) * dt
-        self.goal[2] = wrap(self.goal[2] + self.gw * dt)
-        if not self.goal_trail or math.hypot(self.goal[0] - self.goal_trail[-1][0],
-                                             self.goal[1] - self.goal_trail[-1][1]) > 0.02:
-            self.goal_trail.append((self.goal[0], self.goal[1]))
+                dth = (dr - dl) / self.a.wheel_base
+                mid = self.o_yaw + dth / 2
+                self.o_yaw += dth
+            self.odom[0] += d * math.cos(mid)
+            self.odom[1] += d * math.sin(mid)
+            self.prev = (L, R, yaw)
+            self.o_trail.append(tuple(self.odom))
+        self.yaw_ts = m["ts"]
+        self._refresh_fix()
 
-    # ---------- frame ----------
-    def update(self, _frame):
+    def on_lidar(self, m):
+        arr = np.asarray(m["points"], dtype=float).reshape(-1, 2)
+        self.lidar_ang = (arr[:, 0] + self.a.lidar_yaw_offset) % 360.0
+        self.lidar_dist, self.lidar_ts = arr[:, 1], m["ts"]
+        self.lidar_seq += 1
+        self.lidar_times.append(time.monotonic())
+        front = (self.lidar_ang <= 35.0) | (self.lidar_ang >= 325.0)
+        self.front_min = float(self.lidar_dist[front].min()) / 1000.0 if front.any() else None
+        self.lidar_near = float((self.lidar_dist < 300.0).mean()) if len(self.lidar_dist) else 0.0
+
+    def on_cmd(self, m):
+        self.cmd_seen = (m["linear"], m["angular"], time.monotonic())
+
+    # ================================================================= frame
+    def tick(self):
+        t_mono = time.monotonic()
+        dt = 1.0 / self.a.fps if self.t_last is None else min(t_mono - self.t_last, 0.5)
+        self.t_last = t_mono
         now = time.time()
-        now_m = time.monotonic()
-        dt = clamp(now_m - self.t_last, 0.0, 0.1)
-        self.t_last = now_m
 
-        rv = read_dat(self.a.rover_file)
-        es = read_dat(self.a.esp_file)
-        if rv:
-            self.process_rover(rv)
-        if es:
-            self.process_esp(es)
+        new = False
+        for m in self.sub.poll():
+            t = m["type"]
+            if t == "rtk":
+                self.on_rtk(m)
+                new = True
+            elif t == "esp":
+                self.on_esp(m)
+                new = True
+            elif t == "lidar":
+                self.on_lidar(m)
+            elif t == "cmd_vel":
+                self.on_cmd(m)
+            elif t == "path":
+                self.ext_path = [tuple(p) for p in m["points"]] or None
+            elif t == "goal" and not self.builtin:
+                if m["action"] == "go":
+                    self.nav_goal_xy = (m["x"], m["y"])
+                else:
+                    self.nav_goal_xy, self.ext_path = None, None
 
-        # anchor odometry to GNSS the first time both exist
         if self.odom is not None and not self.odom_anchored and self.gpos is not None:
-            self.odom = list(self.gpos)
+            self.odom, self.odom_anchored = list(self.gpos), True
             self.o_trail.clear()
-            self.o_t = now_m
-            self.odom_anchored = True
 
-        g_age = (now - rv["ts"]) if rv and "ts" in rv else None
-        e_age = (now - es["ts"]) if es and "ts" in es else None
-        g_fresh = self.gpos is not None and g_age is not None and g_age <= GNSS_STALE_S
+        g_age = (now - self.rv["ts"]) if self.rv else None
+        e_age = (now - self.es["ts"]) if self.es else None
+        g_fresh = self.gpos is not None and g_age is not None and g_age <= self.gnss_stale
+        self.tel = self.gpos if g_fresh else (tuple(self.odom) if self.odom is not None else None)
 
-        self.step_models(dt, now_m, g_fresh)
+        # the goal robot appears at the first telemetry pose, and re-snaps once when the fix becomes cm-level
+        if self.goal is None and self.est.has_fix():
+            self.snap_goal()
+        if (not self.synced and self.est.has_fix() and FIX_RANK.get(self.gfix, 0) >= 3):
+            self.synced = True
+            self.snap_goal()
+        self.step_goal(dt, now)
 
-        # trails + raw markers
-        for line, tr in ((self.g_line, self.g_trail), (self.o_line, self.o_trail), (self.goal_line, self.goal_trail)):
+        if self.tel is not None:                                   # ghost: smoothed raw telemetry
+            if self.ghost is None or self.a.ghost_smooth <= 0:
+                self.ghost = [self.tel[0], self.tel[1], self.o_yaw]
+            else:
+                k = 1 - math.exp(-dt / self.a.ghost_smooth)
+                gh = self.ghost
+                gh[0] += (self.tel[0] - gh[0]) * k
+                gh[1] += (self.tel[1] - gh[1]) * k
+                gh[2] = wrap(gh[2] + wrap(self.o_yaw - gh[2]) * k)
+
+        self._maybe_map(now)
+        self._set_fast_artists(now)
+
+        if self.tkp is not None and t_mono - self.last_panel >= 0.25:       # separate window: costs the map nothing
+            self.last_panel = t_mono
+            self._draw_panel(g_age, e_age)
+
+        since = t_mono - self.last_full
+        if self.bg is None or self.need_full or since >= self.a.slow_refresh:
+            force = self.bg is None or self.need_full
+            self.last_full, self.need_full = t_mono, False
+            moved = self._update_slow(g_age, e_age)
+            if force or moved:
+                self.fig.canvas.draw()
+            else:
+                self._refresh_slow()
+        else:
+            self._blit()
+
+    def _nav_status(self):
+        if self.builtin:
+            return self.nav.status()
+        if self.nav_goal_xy is None:
+            return "external planner: click the map to send a goal"
+        n = len(self.ext_path) if self.ext_path else 0
+        return (f"goal ({self.nav_goal_xy[0]:+.1f}, {self.nav_goal_xy[1]:+.1f}) -> planner, "
+                + (f"path {n} pts" if n else "no path received yet"))
+
+    def _maybe_map(self, now):
+        """Fold the newest lidar scan into the map, at the pose the robot had when the scan was taken."""
+        if self.lidar_dist is None or self.lidar_seq == self.map_seq:
+            return
+        self.map_seq = self.lidar_seq
+        if now - self.lidar_ts > LIDAR_STALE_S or len(self.lidar_dist) == 0:
+            return
+        if self.lidar_near > 0.6:                                   # walls all round at 0.2 m = a bad scan / bad world image
+            return
+        pose, _why = self.nav_pose()                                # also enforces fix quality + fresh GNSS
+        if pose is None:
+            return
+        pose = self.est.pose_at(self.lidar_ts)
+        self.grid.integrate_scan(pose, self.lidar_ang, self.lidar_dist)
+
+    def _set_fast_artists(self, now):
+        for line, tr in ((self.goal_line, self.goal_trail),):
+            if tr:
+                xs, ys = zip(*tr)
+                line.set_data(xs, ys)
+            else:
+                line.set_data([], [])
+        shown = self.nav.path if self.builtin else self.ext_path
+        if shown:
+            xs, ys = zip(*shown)
+            self.path_line.set_data(xs, ys)
+        else:
+            self.path_line.set_data([], [])
+        if self.nav_goal_xy and (self.nav.active or not self.builtin):
+            self.goal_mark.set_data([self.nav_goal_xy[0]], [self.nav_goal_xy[1]])
+        else:
+            self.goal_mark.set_data([], [])
+
+        if self.ghost is not None and self.tel is not None:
+            poly, head = self.footprint(*self.ghost)
+            self.ghost_body.set_xy(poly)
+            self.ghost_body.set_visible(True)
+            self.ghost_head.set_data(*head)
+        else:
+            self.ghost_body.set_visible(False)
+            self.ghost_head.set_data([], [])
+        if self.disp is not None:
+            poly, head = self.footprint(*self.disp)
+            self.goal_body.set_xy(poly)
+            self.goal_body.set_visible(True)
+            self.goal_head.set_data(*head)
+        else:
+            self.goal_body.set_visible(False)
+            self.goal_head.set_data([], [])
+
+        pts = np.empty((0, 2))
+        if self.lidar_dist is not None and now - self.lidar_ts <= LIDAR_STALE_S and self.est.has_fix():
+            x, y, yaw = self.est.pose_at(self.lidar_ts)
+            bearing = yaw - np.radians(self.lidar_ang)
+            d = self.lidar_dist / 1000.0
+            pts = np.column_stack((x + d * np.cos(bearing), y + d * np.sin(bearing)))
+        self.lidar_sc.set_offsets(pts)
+
+        text = self.msg if time.monotonic() < self.msg_until else ""
+        status = self._nav_status() if (self.nav.active or self.nav.state in ("arrived",) or not self.builtin) else ""
+        self.nav_text.set_text("   ".join(s for s in (status, text) if s) or "click the map to drive there  |  arrows: teleop")
+
+    def _update_slow(self, g_age, e_age):
+        self.map_im.set_data(self.grid.image())
+        for line, tr in ((self.g_line, self.g_trail), (self.o_line, self.o_trail)):
             if tr:
                 xs, ys = zip(*tr)
                 line.set_data(xs, ys)
@@ -515,210 +810,187 @@ class Visualiser:
             self.o_dot.set_data([self.odom[0]], [self.odom[1]])
         else:
             self.o_dot.set_data([], [])
-
-        # ghost
-        if self.ghost is not None:
-            gx, gy, gyaw = self.ghost
-            self.ghost_body.set_xy(self._footprint(gx, gy, gyaw))
-            self.ghost_body.set_visible(True)
-            hx, hy = self._heading_pts(gx, gy, gyaw)
-            self.ghost_head.set_data(hx, hy)
+        moved = False
+        if self.follow:
+            target = (self.disp[0], self.disp[1]) if self.disp is not None else self.tel
+            if target is not None:
+                # re-centre only when the robot leaves the middle of the view: re-drawing the axes is the slow part
+                half = self.a.view / 2
+                (x0, x1), (y0, y1) = self.ax.get_xlim(), self.ax.get_ylim()
+                cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+                if (abs(x1 - x0 - 2 * half) > 1e-6 or abs(target[0] - cx) > 0.3 * half
+                        or abs(target[1] - cy) > 0.3 * half):
+                    self.ax.set_xlim(target[0] - half, target[0] + half)
+                    self.ax.set_ylim(target[1] - half, target[1] + half)
+                    moved = True
         else:
-            self.ghost_body.set_visible(False)
-            self.ghost_head.set_data([], [])
-
-        # goal
-        if self.goal is not None:
-            x, y, yaw = self.goal
-            self.goal_body.set_xy(self._footprint(x, y, yaw))
-            self.goal_body.set_visible(True)
-            hx, hy = self._heading_pts(x, y, yaw)
-            self.goal_head.set_data(hx, hy)
-            if self.ghost is not None:
-                self.err_line.set_data([x, self.ghost[0]], [y, self.ghost[1]])
-            else:
-                self.err_line.set_data([], [])
-        else:
-            self.goal_body.set_visible(False)
-            self.goal_head.set_data([], [])
-            self.err_line.set_data([], [])
-
-        # camera follows the smooth goal robot (falls back to the ghost)
-        focus = self.goal if self.goal is not None else self.ghost
-        if self.follow and focus is not None:
-            half = self.a.view / 2
-            self.ax.set_xlim(focus[0] - half, focus[0] + half)
-            self.ax.set_ylim(focus[1] - half, focus[1] + half)
-        elif not self.follow:
             l, r, b, t = self.extent
-            m = 0.5
-            self.ax.set_xlim(l - m, r + m)
-            self.ax.set_ylim(b - m, t + m)
+            lim = (l - 0.5, r + 0.5, b - 0.5, t + 0.5)
+            if getattr(self, "_lim", None) != lim:
+                self._lim = lim
+                self.ax.set_xlim(lim[0], lim[1])
+                self.ax.set_ylim(lim[2], lim[3])
+                moved = True
+        if self.tkp is None:
+            self._draw_panel(g_age, e_age)
+        return moved
 
-        if now_m - self._panel_t >= 0.1:        # text panel at 10 Hz is plenty
-            self._panel_t = now_m
-            self._draw_panel(rv, es, g_age, e_age)
-        return []
+    def _draw_panel(self, g_age, e_age):
+        rows = self._panel_rows(g_age, e_age)
+        if self.tkp is not None:
+            self.tkp.set_rows(rows)
+            return
+        self._panel_in_figure(rows)
 
-    @staticmethod
-    def _cost_txt(c):
-        if c is None:
-            return "n/a", GREY
-        if c < 0:
-            return "OFF MAP", RED
-        return (f"{c:.0f}%" + (" OCCUPIED" if c > 50 else "")), (RED if c > 50 else WHITE)
-
-    def _draw_panel(self, rv, es, g_age, e_age):
-        rows = [("GNSS  (rover_pos.dat)", HDR)]
+    def _panel_rows(self, g_age, e_age):
+        rv, es = self.rv, self.es
+        rows = [("GNSS  (rtk, port 5007)", HDR)]
         if not rv:
             rows.append(("  NO DATA", RED))
         else:
-            stale = g_age is not None and g_age > GNSS_STALE_S
-            rows += [
-                (f"  fix    {self.gfix}", FIX_COLORS.get(self.gfix, WHITE)),
-                (f"  sats   {rv.get('sats', '?')}    hdop {rv.get('hdop', '?')}", WHITE),
-                (f"  corr   {rv.get('corr_age', '?')} s", WHITE),
-                (f"  lat    {rv.get('lat', 0):.7f}", WHITE),
-                (f"  lon    {rv.get('lon', 0):.7f}", WHITE),
-                (f"  age    {g_age:.1f} s{'  STALE' if stale else ''}" if g_age is not None else "  age    ?",
-                 RED if stale else GREY),
-            ]
+            stale = g_age is not None and g_age > self.gnss_stale
+            rows += [(f"  fix    {self.gfix}", FIX_COLORS.get(self.gfix, WHITE)),
+                     (f"  sats   {rv['sats']}    hdop {rv['hdop']}", WHITE),
+                     (f"  corr   {rv['corr_age']} s", WHITE),
+                     (f"  lat    {rv['lat']:.7f}", WHITE),
+                     (f"  lon    {rv['lon']:.7f}", WHITE),
+                     (f"  age    {g_age:.1f} s{'  STALE' if stale else ''}", RED if stale else GREY)]
 
         rows += [("", WHITE), ("POSE  (m from map centre)", HDR)]
-        if self.goal is not None:
-            rows.append((f"  GOAL   x={self.goal[0]:+8.2f}  y={self.goal[1]:+8.2f}", GOAL_COLOR))
-        else:
-            rows.append(("  GOAL   waiting for telemetry", GREY))
-        if self.ghost is not None:
-            rows.append((f"  GHOST  x={self.ghost[0]:+8.2f}  y={self.ghost[1]:+8.2f}", GHOST_COLOR))
-            if self.goal is not None:
-                err = math.hypot(self.goal[0] - self.ghost[0], self.goal[1] - self.ghost[1])
-                rows.append((f"  track  {err:.2f} m behind goal" + ("  [r] resync" if err > 1.0 else ""),
-                             RED if err > 1.0 else WHITE))
-        else:
-            rows.append(("  GHOST  no telemetry", GREY))
-        if self.gpos is not None:
-            rows.append((f"  GNSS   x={self.gpos[0]:+8.2f}  y={self.gpos[1]:+8.2f}", WHITE))
-        else:
-            rows.append(("  GNSS   no position", GREY))
+        rows.append((f"  GNSS   x={self.gpos[0]:+8.2f}  y={self.gpos[1]:+8.2f}", WHITE) if self.gpos is not None
+                    else ("  GNSS   no position", GREY))
         if self.odom is not None:
             rows.append((f"  ODOM   x={self.odom[0]:+8.2f}  y={self.odom[1]:+8.2f}", WHITE))
             if self.gpos is not None:
-                drift = math.hypot(self.odom[0] - self.gpos[0], self.odom[1] - self.gpos[1])
-                rows.append((f"  drift  {drift:.2f} m (odom vs GNSS)", WHITE))
+                rows.append((f"  drift  {math.hypot(self.odom[0] - self.gpos[0], self.odom[1] - self.gpos[1]):.2f} m (odom vs GNSS)", WHITE))
         else:
             rows.append(("  ODOM   no data", GREY))
-        gy = math.degrees(self.goal[2]) if self.goal is not None else float("nan")
-        rows.append((f"  yaw    goal {gy:+6.1f}  tel {math.degrees(self.o_yaw):+6.1f}"
-                     + ("" if self.have_yaw else " (enc)"), WHITE))
-        if self.ghost is not None:
-            txt, col = self._cost_txt(self.cost_at(self.ghost[0], self.ghost[1]))
-            rows.append((f"  cost   robot {txt}", col))
-        if self.goal is not None:
-            txt, col = self._cost_txt(self.cost_at(self.goal[0], self.goal[1]))
-            rows.append((f"  cost   goal  {txt}", col))
+        rows.append((f"  yaw    {math.degrees(self.o_yaw):+7.1f} deg" + ("" if self.have_yaw else "  (from enc)"), WHITE))
+        if self.tel is not None:
+            st = self.grid.state_at(*self.tel)
+            rows.append((f"  map    {st}", RED if st in ("OCCUPIED", "off map") else WHITE))
 
-        rows += [("", WHITE), ("ESP32  (sim_esp.dat)", HDR)]
+        rows += [("", WHITE), ("ESP32  (esp, port 5006)", HDR)]
         if not es:
             rows.append(("  NO DATA", RED))
         else:
-            enc, imu = es.get("enc", {}), es.get("imu", {})
-            gyro, acc = imu.get("gyro", [0, 0, 0]), imu.get("accel", [0, 0, 0])
-            stale = e_age is not None and e_age > ESP_STALE_S
-            rows += [
-                (f"  seq    {es.get('seq', '?')}", WHITE),
-                (f"  L ticks {enc.get('left_ticks', '?')}", WHITE),
-                (f"  R ticks {enc.get('right_ticks', '?')}", WHITE),
-                (f"  speed  {self.meas_v:+.2f} m/s", WHITE),
-                (f"  gyro z {gyro[2]:+.3f} rad/s", WHITE),
-                (f"  accel  {acc[0]:+.2f} {acc[1]:+.2f} {acc[2]:+.2f}", WHITE),
-                (f"  age    {e_age:.1f} s{'  STALE' if stale else ''}" if e_age is not None else "  age    ?",
-                 RED if stale else GREY),
-            ]
+            enc, imu = es["enc"], es["imu"]
+            stale = e_age is not None and e_age > self.esp_stale
+            rows += [(f"  seq    {es['seq']}", WHITE),
+                     (f"  L ticks {enc['left_ticks']}", WHITE),
+                     (f"  R ticks {enc['right_ticks']}", WHITE),
+                     (f"  speed  {self.v_meas:+.2f} m/s", WHITE),
+                     (f"  gyro z {imu['gyro'][2]:+.3f} rad/s", WHITE),
+                     (f"  accel  {imu['accel'][0]:+.2f} {imu['accel'][1]:+.2f} {imu['accel'][2]:+.2f}", WHITE),
+                     (f"  age    {e_age:.1f} s{'  STALE' if stale else ''}", RED if stale else GREY)]
 
-        rows += [("", WHITE), ("COMMAND", HDR)]
-        if self.a.circle > 0 and self.sim is not None:
-            src = f"sim autopilot (circle r={self.a.circle} m)"
-        elif self.a.drive:
-            src = "arrow keys"
+        rows += [("", WHITE), ("TRACKING  (goal robot vs real)", HDR)]
+        if self.goal is not None and self.gpos is not None and self.g_ts is not None:
+            m = self.est.model_at(self.g_ts)             # where the goal robot was when the sample was taken
+            perr = math.hypot(m[0] - self.gpos[0], m[1] - self.gpos[1]) if m else 0.0
+            col = RED if perr > 1.0 else (AMBER if perr > 0.3 else GREEN)
+            rows.append((f"  speed  goal {self.goal[3]:+.2f}  real {self.v_meas:+.2f} m/s", WHITE))
+            rows.append((f"  error  {perr:.2f} m at sample time", col))
         else:
-            src = "external cmd_vel.dat (--no-drive)"
-        cv, cw = self.current_cmd()
-        rows.append((f"  src    {src}", WHITE))
-        rows.append((f"  cmd    v={cv:+.2f} m/s  w={cw:+.2f} rad/s", GREEN if (cv or cw) else WHITE))
-        rows.append((f"  goal   v={self.gv:+.2f} m/s  w={self.gw:+.2f} rad/s", GOAL_COLOR))
-        if self.sim is None:
-            sim_txt, sim_col = "not launched", GREY
-        elif self.sim.poll() is None:
-            sim_txt, sim_col = f"running (pid {self.sim.pid})", WHITE
-        else:
-            sim_txt, sim_col = f"EXITED (code {self.sim.returncode})", RED
-        rows.append((f"  sim    {sim_txt}", sim_col))
+            rows.append(("  waiting for telemetry", GREY))
 
+        rows += [("", WHITE), ("LIDAR  (port 5005)", HDR)]
+        if self.lidar_ts is None:
+            rows.append(("  waiting for scans...", AMBER))
+        else:
+            age = time.time() - self.lidar_ts
+            mono = time.monotonic()
+            rate = sum(1 for t in self.lidar_times if mono - t <= 2.0) / 2.0
+            rows.append((f"  points {len(self.lidar_dist)}   rate {rate:.1f} Hz", WHITE))
+            rows.append((f"  front  {'-' if self.front_min is None else f'{self.front_min:.2f} m'}"
+                         f"   age {age:.1f} s{'  STALE' if age > LIDAR_STALE_S else ''}", RED if age > LIDAR_STALE_S else WHITE))
+            if self.lidar_near > 0.6:
+                rows.append((f"  BAD SCAN: {self.lidar_near * 100:.0f}% of points < 0.3 m,", RED))
+                rows.append(("  not mapped. Sim: wrong --invert?", RED))
+
+        known, walls = self.grid.stats()
+        pose, why = self.nav_pose()
+        rows += [("", WHITE), ("MAP  (built from lidar)", HDR),
+                 (f"  known  {known:.1f} %   walls {walls} cells", WHITE),
+                 (f"  scans  {self.grid.scans}", WHITE),
+                 ("  mapping ON" if pose is not None else f"  mapping OFF: {why}", WHITE if pose is not None else AMBER)]
+
+        rows += [("", WHITE), ("NAVIGATION", HDR), (f"  {self._nav_status()[:44]}", WHITE)]
+        if self.builtin and (self.nav.active or self.nav.state in ("arrived", "no path")):
+            rows.append((f"  plan   {self.nav.plan_ms:.0f} ms, {len(self.nav.path) if self.nav.path else 0} waypoints", WHITE))
+
+        rows += [("", WHITE), ("COMMAND  (cmd_vel on the bus)", HDR)]
+        lin, ang, t = self.cmd_seen
+        live = time.monotonic() - t <= cfg.CMD_TIMEOUT
+        rows.append((f"  v={lin:+.2f} m/s  w={ang:+.2f} rad/s" + ("" if live else "  (idle)"), GREEN if live and (lin or ang) else WHITE))
+        rows.append((f"  limits {self.a.max_speed:g} m/s, {self.a.max_turn:g} rad/s", GREY))
         rows += [("", WHITE),
-                 ("arrows drive   space stop", GREY),
-                 ("[r] snap goal to ghost  [f] follow/full", GREY),
-                 ("[c] clear trails  [o] re-anchor odom", GREY)]
-        for t, (txt, col) in zip(self.rows, rows + [("", WHITE)] * len(self.rows)):
-            t.set_text(txt)
-            t.set_color(col)
+                 ("arrows drive  space stop  x/right-click cancel", GREY),
+                 ("[g] snap goal  [f] follow/full  [c] clear trails", GREY),
+                 ("[o] odom  [r] reset map  [s] save map", GREY)]
+        if self.sub.bad:
+            rows.append((f"  {self.sub.bad} bad bus messages dropped: {self.sub.last_error[:30]}", AMBER))
+        return rows
+
+    def _panel_in_figure(self, rows):
+        for col in {c for _, c in rows} | set(self.panel_txt):
+            if col not in self.panel_txt:
+                self.panel_txt[col] = self.panel_ax.text(0.0, 1.0, "", family="monospace", fontsize=8, va="top",
+                                                         linespacing=1.55, transform=self.panel_ax.transAxes, color=col,
+                                                         animated=True)
+            self.panel_txt[col].set_text("\n".join(txt if c == col else "" for txt, c in rows))
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Live robot + costmap visualiser with keyboard driving")
-    ap.add_argument("--rover-file", default=DEFAULT_ROVER, help="GNSS shared file (default ../rtk/rover_pos.dat)")
-    ap.add_argument("--esp-file", default=DEFAULT_ESP, help="ESP32 shared file (default ../sims/sim_esp.dat)")
-    ap.add_argument("--cmd-file", default=DEFAULT_CMD, help="velocity command file (default ../sims/cmd_vel.dat)")
-    ap.add_argument("--sim-script", default=DEFAULT_SIM, help="simulator to launch (default ../sims/sim_robot.py)")
-    ap.add_argument("--no-sim", action="store_true", help="don't launch the simulator")
-    ap.add_argument("--no-drive", action="store_true", help="arrow keys don't write cmd_vel.dat")
-    ap.add_argument("--circle", type=float, default=0.0, help="sim autopilot: circle of this radius (m)")
-    ap.add_argument("--circle-speed", type=float, default=0.5, help="autopilot speed, m/s")
-    ap.add_argument("--max-speed", type=float, default=1.0, help="arrow-key forward speed, m/s (default 1.0)")
-    ap.add_argument("--max-turn", type=float, default=1.2, help="arrow-key turn rate, rad/s (default 1.2)")
-    ap.add_argument("--lin-accel", type=float, default=1.0, help="goal robot + sim max linear accel, m/s^2")
-    ap.add_argument("--ang-accel", type=float, default=3.0, help="goal robot + sim max angular accel, rad/s^2")
-    ap.add_argument("--ghost-tau", type=float, default=0.15,
-                    help="ghost smoothing time constant, s (lower = snappier, higher = smoother; default 0.15)")
-    ap.add_argument("--start-x", type=float, default=0.0, help="sim start, m east of map centre")
-    ap.add_argument("--start-y", type=float, default=0.0, help="sim start, m north of map centre")
-    ap.add_argument("--start-yaw", type=float, default=0.0, help="sim start heading, deg (0 = east, CCW +)")
-    ap.add_argument("--fix", choices=["No Fix", "3D Fix", "DGNSS", "Float RTK", "Fixed RTK"],
-                    help="sim: lock to one fix state (default: realistic warm-up)")
-    ap.add_argument("--cmap", help="costmap PNG (default: cmap.png next to this script, ../, or cwd)")
-    ap.add_argument("--res", type=float, default=0.05, help="metres per costmap pixel (default 0.05 = 50 mm)")
-    ap.add_argument("--invert", action="store_true", help="costmap is black = free, white = obstacle")
-    ap.add_argument("--ref-lat", type=float, help="latitude at the map centre")
-    ap.add_argument("--ref-lon", type=float, help="longitude at the map centre")
+    ap = argparse.ArgumentParser(description="Live robot visualiser + teleop + click-to-drive (UDP bus client)")
+    ap.add_argument("--no-drive", action="store_true", help="view only: arrow keys and clicks do nothing, never publishes")
+    ap.add_argument("--cmap", help="hidden world image: only used for the map SIZE and --show-world (default: cmap.png near the script / ugv/ / cwd)")
+    ap.add_argument("--invert", action="store_true", help="the world image is black = free, white = wall")
+    ap.add_argument("--show-world", action="store_true", help="overlay the hidden world (cmap.png walls) in translucent red")
+    ap.add_argument("--map-size", type=float, default=40.0, help="learned map width/height in m when there is no cmap.png (default 40)")
+    ap.add_argument("--res", type=float, default=cfg.MAP_RES, help="metres per map cell (default from common/config.py)")
+    ap.add_argument("--ref-lat", type=float, default=cfg.ORIGIN_LAT, help="latitude of the map centre (default: common/config.py)")
+    ap.add_argument("--ref-lon", type=float, default=cfg.ORIGIN_LON, help="longitude of the map centre")
+    ap.add_argument("--anchor-first-fix", action="store_true", help="put the map centre at the first GNSS fix instead")
+    ap.add_argument("--min-fix", default="Float RTK", choices=["3D Fix", "DGNSS", "Float RTK", "Fixed RTK"],
+                    help="worst fix quality allowed for mapping and navigation (default Float RTK)")
+    ap.add_argument("--builtin-nav", action="store_true",
+                    help="drive with the built-in planner in this program (testing). Default: only PUBLISH the clicked goal "
+                         "(port 5008) and let your own planner publish cmd_vel and a path")
+    ap.add_argument("--planner", help="your path planner as module:function (default: built-in Theta*; see common/planner.py)")
+    ap.add_argument("--plan-res", type=float, default=0.10, help="planning grid cell size, m (default 0.10)")
+    ap.add_argument("--inflate", type=float, default=0.40, help="keep this far from walls, m (default 0.40)")
+    ap.add_argument("--replan", type=float, default=1.0, help="replan every this many seconds while driving (default 1)")
+    ap.add_argument("--lookahead", type=float, default=0.6, help="path-following lookahead, m")
+    ap.add_argument("--goal-tol", type=float, default=0.25, help="arrived when this close, m")
+    ap.add_argument("--stop-dist", type=float, default=0.45, help="stop if the lidar sees something this close ahead, m")
+    ap.add_argument("--max-speed", type=float, default=cfg.MAX_SPEED, help="teleop AND navigation speed, m/s (default common/config.py)")
+    ap.add_argument("--max-turn", type=float, default=cfg.MAX_TURN, help="teleop AND navigation turn rate, rad/s")
+    ap.add_argument("--lin-accel", type=float, default=cfg.LIN_ACCEL, help="goal-robot acceleration limit (match the robot)")
+    ap.add_argument("--ang-accel", type=float, default=cfg.ANG_ACCEL)
+    ap.add_argument("--gnss-hz", type=float, default=1.0, help="expected rtk rate (only sets the 'stale' threshold)")
+    ap.add_argument("--esp-hz", type=float, default=1.0, help="expected esp rate (only sets the 'stale' threshold)")
+    ap.add_argument("--ghost-smooth", type=float, default=0.3, help="seconds the ghost glides to each sample; 0 = jump")
+    ap.add_argument("--lidar-yaw-offset", type=float, default=0.0, help="degrees between the lidar's 0 and the robot's front")
+    ap.add_argument("--save-map", default="learned_map.png", help="file the [s] key saves the learned map to")
     ap.add_argument("--view", type=float, default=12.0, help="follow-view window size in m (default 12)")
-    ap.add_argument("--trail", type=int, default=2000, help="max trail points (default 2000)")
-    ap.add_argument("--fps", type=float, default=30.0, help="redraw rate (default 30; lower it if the window lags)")
-    ap.add_argument("--robot-length", type=float, default=0.45, help="footprint length, m")
-    ap.add_argument("--robot-width", type=float, default=0.35, help="footprint width, m")
-    # must match the robot (the sim is launched with these too)
-    ap.add_argument("--wheel-base", type=float, default=0.30)
-    ap.add_argument("--wheel-diameter", type=float, default=0.15)
-    ap.add_argument("--ticks-per-rev", type=int, default=1000)
+    ap.add_argument("--trail", type=int, default=2000, help="max trail points")
+    ap.add_argument("--slow-refresh", type=float, default=MAX_FULL_S,
+                    help="seconds between redraws of the map and trails (default 1; try 5 if the window stutters). "
+                         "Robots, lidar scan and path still move at --fps; the telemetry window updates 4x a second regardless")
+    ap.add_argument("--fps", type=float, default=30.0, help="goal/ghost/scan animation rate")
+    ap.add_argument("--robot-length", type=float, default=cfg.ROBOT_LENGTH)
+    ap.add_argument("--robot-width", type=float, default=cfg.ROBOT_WIDTH)
+    ap.add_argument("--wheel-base", type=float, default=cfg.WHEEL_BASE)
+    ap.add_argument("--wheel-diameter", type=float, default=cfg.WHEEL_DIAMETER)
+    ap.add_argument("--ticks-per-rev", type=int, default=cfg.TICKS_PER_REV)
     args = ap.parse_args()
     args.drive = not args.no_drive
+    args.cmap_path = find_cmap(args)
 
-    sim = None
-    if not args.no_sim:
-        # the sim's origin IS the map centre, so the robot starts where you expect on the costmap
-        if args.ref_lat is None or args.ref_lon is None:
-            args.ref_lat, args.ref_lon = DEFAULT_LAT, DEFAULT_LON
-        sim = launch_sim(args)
-
-    print(f"GNSS file: {args.rover_file}")
-    print(f"ESP file : {args.esp_file}")
-    print(f"CMD file : {args.cmd_file}")
-    try:
-        viz = Visualiser(args, sim)
-        anim = FuncAnimation(viz.fig, viz.update, interval=int(1000 / args.fps), cache_frame_data=False)
-        plt.show()
-        del anim
-    finally:
-        stop_sim(sim)
+    viz = Visualiser(args)
+    plt.show()
+    del viz
 
 
 if __name__ == "__main__":

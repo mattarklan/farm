@@ -146,13 +146,77 @@ CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.s"
 	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\Matt\Desktop\farm\ugv\src\gps\gps_driver.cpp -o CMakeFiles\rover_app.dir\src\gps\gps_driver.cpp.s
 
+CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj: CMakeFiles/rover_app.dir/flags.make
+CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj: CMakeFiles/rover_app.dir/includes_CXX.rsp
+CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj: C:/Users/Matt/Desktop/farm/ugv/src/planning/local_planner.cpp
+CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj: CMakeFiles/rover_app.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\Matt\Desktop\farm\ugv\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj -MF CMakeFiles\rover_app.dir\src\planning\local_planner.cpp.obj.d -o CMakeFiles\rover_app.dir\src\planning\local_planner.cpp.obj -c C:\Users\Matt\Desktop\farm\ugv\src\planning\local_planner.cpp
+
+CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.i"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\Matt\Desktop\farm\ugv\src\planning\local_planner.cpp > CMakeFiles\rover_app.dir\src\planning\local_planner.cpp.i
+
+CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.s"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\Matt\Desktop\farm\ugv\src\planning\local_planner.cpp -o CMakeFiles\rover_app.dir\src\planning\local_planner.cpp.s
+
+CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj: CMakeFiles/rover_app.dir/flags.make
+CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj: CMakeFiles/rover_app.dir/includes_CXX.rsp
+CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj: C:/Users/Matt/Desktop/farm/ugv/src/planning/theta_star.cpp
+CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj: CMakeFiles/rover_app.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\Matt\Desktop\farm\ugv\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj -MF CMakeFiles\rover_app.dir\src\planning\theta_star.cpp.obj.d -o CMakeFiles\rover_app.dir\src\planning\theta_star.cpp.obj -c C:\Users\Matt\Desktop\farm\ugv\src\planning\theta_star.cpp
+
+CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.i"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\Matt\Desktop\farm\ugv\src\planning\theta_star.cpp > CMakeFiles\rover_app.dir\src\planning\theta_star.cpp.i
+
+CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.s"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\Matt\Desktop\farm\ugv\src\planning\theta_star.cpp -o CMakeFiles\rover_app.dir\src\planning\theta_star.cpp.s
+
+CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj: CMakeFiles/rover_app.dir/flags.make
+CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj: CMakeFiles/rover_app.dir/includes_CXX.rsp
+CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj: C:/Users/Matt/Desktop/farm/ugv/src/localization/pose_estimator.cpp
+CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj: CMakeFiles/rover_app.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\Matt\Desktop\farm\ugv\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj -MF CMakeFiles\rover_app.dir\src\localization\pose_estimator.cpp.obj.d -o CMakeFiles\rover_app.dir\src\localization\pose_estimator.cpp.obj -c C:\Users\Matt\Desktop\farm\ugv\src\localization\pose_estimator.cpp
+
+CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.i"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\Matt\Desktop\farm\ugv\src\localization\pose_estimator.cpp > CMakeFiles\rover_app.dir\src\localization\pose_estimator.cpp.i
+
+CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.s"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\Matt\Desktop\farm\ugv\src\localization\pose_estimator.cpp -o CMakeFiles\rover_app.dir\src\localization\pose_estimator.cpp.s
+
+CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj: CMakeFiles/rover_app.dir/flags.make
+CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj: CMakeFiles/rover_app.dir/includes_CXX.rsp
+CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj: C:/Users/Matt/Desktop/farm/ugv/src/comms/udp_bus.cpp
+CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj: CMakeFiles/rover_app.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=C:\Users\Matt\Desktop\farm\ugv\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj -MF CMakeFiles\rover_app.dir\src\comms\udp_bus.cpp.obj.d -o CMakeFiles\rover_app.dir\src\comms\udp_bus.cpp.obj -c C:\Users\Matt\Desktop\farm\ugv\src\comms\udp_bus.cpp
+
+CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.i"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E C:\Users\Matt\Desktop\farm\ugv\src\comms\udp_bus.cpp > CMakeFiles\rover_app.dir\src\comms\udp_bus.cpp.i
+
+CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.s"
+	C:\w64devkit\bin\c++.exe $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S C:\Users\Matt\Desktop\farm\ugv\src\comms\udp_bus.cpp -o CMakeFiles\rover_app.dir\src\comms\udp_bus.cpp.s
+
 # Object files for target rover_app
 rover_app_OBJECTS = \
 "CMakeFiles/rover_app.dir/src/main.cpp.obj" \
 "CMakeFiles/rover_app.dir/src/debug/debug_server.cpp.obj" \
 "CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.obj" \
 "CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj" \
-"CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.obj"
+"CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.obj" \
+"CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj" \
+"CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj" \
+"CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj" \
+"CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj"
 
 # External object files for target rover_app
 rover_app_EXTERNAL_OBJECTS =
@@ -162,11 +226,15 @@ rover_app.exe: CMakeFiles/rover_app.dir/src/debug/debug_server.cpp.obj
 rover_app.exe: CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.obj
 rover_app.exe: CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj
 rover_app.exe: CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.obj
+rover_app.exe: CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj
+rover_app.exe: CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj
+rover_app.exe: CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj
+rover_app.exe: CMakeFiles/rover_app.dir/src/comms/udp_bus.cpp.obj
 rover_app.exe: CMakeFiles/rover_app.dir/build.make
 rover_app.exe: CMakeFiles/rover_app.dir/linkLibs.rsp
 rover_app.exe: CMakeFiles/rover_app.dir/objects1.rsp
 rover_app.exe: CMakeFiles/rover_app.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\Matt\Desktop\farm\ugv\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Linking CXX executable rover_app.exe"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=C:\Users\Matt\Desktop\farm\ugv\build\CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Linking CXX executable rover_app.exe"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles\rover_app.dir\link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

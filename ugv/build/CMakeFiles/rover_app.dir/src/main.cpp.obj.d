@@ -55,18 +55,53 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cerrno \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/atomicity.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/atomic_word.h \
- C:/Users/Matt/Desktop/farm/ugv/include/rover/gps/gps_driver.hpp \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/atomic \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/atomic_base.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/vector \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_algobase.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator_base_types.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator_base_funcs.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/concept_check.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/debug/assertions.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/ptr_traits.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/debug/debug.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/predefined_ops.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_function.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/backward/binders.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bit \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/concepts \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/allocator.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/c++allocator.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_allocator.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/new \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/exception.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_except.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_throw.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memoryfwd.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_construct.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_uninitialized.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/alloc_traits.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/alloc_traits.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_vector.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stdexcept_throw.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stdexcept_throwfwd.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/initializer_list \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_bvector.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/functional_hash.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/hash_bytes.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/range_access.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/erase_if.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/vector.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memory_resource.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstddef \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/uses_allocator_args.h \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/gps/gps_driver.hpp \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/atomic \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/atomic_base.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/atomic_lockfree_defines.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/thread \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/std_thread.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iosfwd \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stringfwd.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memoryfwd.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/postypes.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cwchar \
  C:/w64devkit/include/wchar.h C:/w64devkit/include/corecrt_stdio_config.h \
@@ -76,20 +111,11 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/include/corecrt_wctype.h \
  C:/w64devkit/include/_mingw_stat64.h C:/w64devkit/include/swprintf.inl \
  C:/w64devkit/include/sec_api/wchar_s.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/functional_hash.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/hash_bytes.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/refwrap.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_function.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/backward/binders.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/unique_ptr.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/debug/assertions.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/this_thread_sleep.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/string \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/char_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/allocator.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/c++allocator.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_allocator.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_throw.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/localefwd.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/c++locale.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/clocale \
@@ -99,25 +125,7 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/include/ctype.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/ostream_insert.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/cxxabi_forced.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator_base_funcs.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/concept_check.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator_base_types.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/ptr_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stdexcept_throw.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stdexcept_throwfwd.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_algobase.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/debug/debug.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/predefined_ops.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bit \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/concepts \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/range_access.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/initializer_list \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/erase_if.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/basic_string.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/alloc_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/alloc_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_construct.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/string_view \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/string_view.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/string_conversions.h \
@@ -130,9 +138,6 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstdio \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/charconv.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/basic_string.tcc \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memory_resource.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstddef \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/uses_allocator_args.h \
  C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/motor_interface.hpp \
  C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/serial_port.hpp \
  C:/w64devkit/include/windows.h C:/w64devkit/include/sdkddkver.h \
@@ -224,6 +229,43 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/include/sec_api/stralign_s.h C:/w64devkit/include/winsvc.h \
  C:/w64devkit/include/mcx.h C:/w64devkit/include/imm.h \
  C:/Users/Matt/Desktop/farm/ugv/include/rover/debug/debug_server.hpp \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/localization/pose_estimator.hpp \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cmath \
+ C:/w64devkit/include/math.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/specfun.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/gamma.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/special_function_util.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/bessel_function.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/beta_function.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/ell_integral.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/exp_integral.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/hypergeometric.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/legendre_function.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/modified_bessel_func.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/poly_hermite.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/poly_laguerre.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tr1/riemann_zeta.tcc \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/planning/theta_star.hpp \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/queue \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/deque \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_deque.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/deque.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_heap.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_queue.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/unordered_map \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/unordered_map.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/hashtable.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/hashtable_policy.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/aligned_buffer.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/enable_special_members.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/node_handle.h \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/planning/local_planner.hpp \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/comms/udp_bus.hpp \
+ C:/w64devkit/include/winsock2.h \
+ C:/w64devkit/include/psdk_inc/_ws1_undef.h C:/w64devkit/include/ws2def.h \
+ C:/w64devkit/include/qos.h C:/w64devkit/include/ws2tcpip.h \
+ C:/w64devkit/include/ws2ipdef.h C:/w64devkit/include/in6addr.h \
+ C:/w64devkit/include/mstcpip.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iostream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ostream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/ostream.h \
@@ -254,13 +296,17 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/ostream.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/istream \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/istream.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/fstream \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/codecvt.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/basic_file.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/c++io.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fstream.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/chrono \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/iomanip \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/locale \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_facets_nonio.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/time_members.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/messages_members.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/codecvt.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_facets_nonio.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_conv.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/quoted_string.h \
