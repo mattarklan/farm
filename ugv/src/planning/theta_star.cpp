@@ -64,7 +64,7 @@ bool ThetaStarPlanner::line_of_sight(const GridNode* s, const GridNode* s_prime,
         }
         if (e2 < dx) {
             err += dx;
-            x0 += sy;
+            y0 += sy;
         }
     }
     return true;

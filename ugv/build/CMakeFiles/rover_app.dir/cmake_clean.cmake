@@ -13,8 +13,6 @@ file(REMOVE_RECURSE
   "CMakeFiles/rover_app.dir/src/motors/motor_interface.cpp.obj.d"
   "CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.obj"
   "CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.obj.d"
-  "CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj"
-  "CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj.d"
   "CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj"
   "CMakeFiles/rover_app.dir/src/planning/theta_star.cpp.obj.d"
   "librover_app.dll.a"

@@ -26,10 +26,10 @@ public:
 private:
 #ifdef _WIN32
     SOCKET send_socket_;
-    SOCKET recv_socket_;
+    std::vector<SOCKET> recv_sockets_;
 #else
     int send_socket_;
-    int recv_socket_;
+    std::vector<int> recv_sockets_;
 #endif
     std::string group_ip_;
     std::string interface_ip_;

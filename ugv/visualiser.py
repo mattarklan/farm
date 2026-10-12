@@ -71,6 +71,7 @@ from common import config as cfg                               # noqa: E402
 from common.protocol import Publisher, Subscriber, FIX_RANK    # noqa: E402
 from common.estimator import PoseEstimator                        # noqa: E402
 from common.mapping import OccupancyGrid                          # noqa: E402
+from common.localiser import Localiser                            # noqa: E402
 from common.navigator import Navigator                            # noqa: E402
 from common.planner import load_planner                           # noqa: E402
 
@@ -218,7 +219,14 @@ class Visualiser:
         self.g_trail, self.o_trail = deque(maxlen=args.trail), deque(maxlen=args.trail)
         self.follow = True
         self.tel = None                  # (x, y) best raw telemetry position (GNSS, else odometry)
-        self.ghost = None                # [x, y, yaw] smoothed telemetry pose for display
+        self.ghost = None                # [x, y, yaw] the robot as odometry + lidar say it is (what the sim/real robot does)
+        # localisation: the robot's pose = wheel odometry + IMU yaw, corrected by lidar and (when good) GNSS.
+        self.placed = False              # robot placed on the map (first GNSS fix of the --min-fix quality)
+        self.yaw_off = 0.0               # correction added to the IMU yaw (from lidar)
+        self.pend = [0.0, 0.0]           # GNSS correction still to be applied (slid in smoothly)
+        self.anchored = False            # robot has been pulled onto the first Fixed RTK position
+        self.gps_err = None              # distance GNSS is from the robot (m)
+        self.loc = Localiser(self.grid)
 
         # lidar
         self.lidar_ang = self.lidar_dist = self.lidar_ts = None
@@ -293,7 +301,7 @@ class Visualiser:
         self.goal_mark, = ax.plot([], [], "*", ms=16, color="#00e5ff", mec="w", mew=1, zorder=7, label="Nav goal", animated=True)
         self.lidar_sc = ax.scatter([], [], s=5, c="#ff4d4d", linewidths=0, zorder=4, label="LiDAR scan", animated=True)
         self.ghost_body = Polygon(np.zeros((4, 2)), closed=True, fc=GHOST_RGB + (0.30,), ec=GHOST_RGB + (0.95,),
-                                  ls="--", lw=1.8, zorder=4, label="Telemetry ghost (actual)", animated=True)
+                                  ls="--", lw=1.8, zorder=4, label="Robot (odometry + lidar)", animated=True)
         self.ghost_body.set_visible(False)
         ax.add_patch(self.ghost_body)
         self.ghost_head, = ax.plot([], [], "--", color=GHOST_RGB, lw=2, zorder=4, animated=True)
@@ -312,7 +320,7 @@ class Visualiser:
                              self.goal_body, self.goal_head, self.goal_mark, self.nav_text)
 
         # colour key (a real matplotlib legend is slow to draw and clipped at this size)
-        for i, (txt, col) in enumerate((("blue = goal pose (smooth)", "#4aa3ff"), ("dashed = telemetry ghost", "#c8a2ff"),
+        for i, (txt, col) in enumerate((("blue = predicted pose (smooth)", "#4aa3ff"), ("dashed = robot (odometry + lidar)", "#ffb347"),
                                         ("green = GNSS trail", "#2ecc71"), ("magenta = odometry", "#e056fd"),
                                         ("cyan = planned path", "#00e5ff"), ("red dots = lidar", "#ff4d4d"))):
             ax.text(0.99, 0.985 - i * 0.03, txt, transform=ax.transAxes, ha="right", va="top", fontsize=7, color=col,
@@ -474,13 +482,11 @@ class Visualiser:
     def nav_pose(self):
         """Pose to navigate/map from, or (None, why)."""
         now = time.time()
-        if not self.est.has_fix():
-            return None, "no GNSS position yet"
+        if not self.placed or not self.est.has_fix():
+            return None, f"waiting for a {self.a.min_fix} fix to place the robot (have {self.gfix})"
         age = self.est.fix_age(now)
-        if age is None or age > self.gnss_stale:
-            return None, "GNSS data is stale"
-        if FIX_RANK.get(self.gfix, 0) < self.min_rank:
-            return None, f"waiting for {self.a.min_fix} (have {self.gfix})"
+        if age is None or age > self.esp_stale:
+            return None, "odometry data is stale"
         return self.est.pose_at(now), ""
 
     def _control_tick(self):
@@ -534,6 +540,9 @@ class Visualiser:
         if g is None or dt <= 0:
             return
         cv, cw = self.goal_cmd()
+        if (cv > 0 and self.front_min is not None and self.lidar_ts is not None and time.time() - self.lidar_ts < 0.5
+                and self.front_min < self.a.robot_length / 2 + 0.08):
+            cv = 0.0                         # a wall right in front: the real robot can't drive on, so the model must not either
         g[3] += clamp(cv - g[3], -self.a.lin_accel * dt, self.a.lin_accel * dt)
         g[4] += clamp(cw - g[4], -self.a.ang_accel * dt, self.a.ang_accel * dt)
         mid = g[2] + g[4] * dt / 2
@@ -576,9 +585,31 @@ class Visualiser:
         lat0, lon0 = self.ref
         return (lon - lon0) * M_PER_DEG * math.cos(math.radians(lat0)), (lat - lat0) * M_PER_DEG
 
-    def _refresh_fix(self):
-        if self.gpos is not None and self.yaw_ts is not None:
-            self.est.set_fix(self.g_ts, self.gpos[0], self.gpos[1], self.yaw_ts, self.o_yaw)
+    def _shift_fix(self, dx, dy, dyaw):
+        t_pos, x, y, t_yaw, yaw = self.est.fix
+        self.est.set_fix(t_pos, x + dx, y + dy, t_yaw, wrap(yaw + dyaw))
+        self.yaw_off += dyaw
+
+    def _gps_fuse(self, rank):
+        """GNSS never moves the robot directly (it jitters). Good fixes pull it gently; the first Fixed RTK
+        fix pulls it all the way onto the GNSS position, smoothly."""
+        p = self.est.pose_at(self.g_ts)
+        if p is None:
+            return
+        ex, ey = self.gpos[0] - p[0], self.gpos[1] - p[1]
+        self.gps_err = math.hypot(ex, ey)
+        if self.a.no_gps_fusion or rank < 3:
+            return
+        if rank >= 4 and not self.anchored:
+            self.anchored, gain = True, 1.0
+        elif rank >= 4:
+            if self.gps_err > 2.0:                                   # a Fixed RTK jump this big is more likely a glitch
+                return
+            gain = 0.15
+        else:
+            gain = 0.03
+        self.pend[0] += gain * ex
+        self.pend[1] += gain * ey
 
     def on_rtk(self, m):
         self.rv = m
@@ -591,7 +622,15 @@ class Visualiser:
             print(f"Map centre anchored at first fix: {m['lat']:.7f}, {m['lon']:.7f}")
         self.gpos, self.g_ts = self.to_local(m["lat"], m["lon"]), m["ts"]
         self.g_trail.append(self.gpos)
-        self._refresh_fix()
+        rank = FIX_RANK.get(m["fix"], 0)
+        if not self.placed:
+            if rank >= self.min_rank and self.yaw_ts is not None:     # put the robot where GNSS says, once, then odometry takes over
+                self.placed = True
+                self.yaw_off = 0.0
+                self.est.set_fix(self.g_ts, self.gpos[0], self.gpos[1], self.yaw_ts, self.o_yaw)
+                self.say(f"robot placed at the {m['fix']} position; odometry + lidar take over", 6)
+        elif self.est.has_fix():
+            self._gps_fuse(rank)
 
     def on_esp(self, m):
         self.es = m
@@ -630,10 +669,13 @@ class Visualiser:
                 self.o_yaw += dth
             self.odom[0] += d * math.cos(mid)
             self.odom[1] += d * math.sin(mid)
+            if self.placed and self.est.has_fix():                     # the robot moves by what the wheels/IMU measured
+                _, fx, fy, _, _ = self.est.fix
+                hm = mid + self.yaw_off
+                self.est.set_fix(m["ts"], fx + d * math.cos(hm), fy + d * math.sin(hm), m["ts"], wrap(self.o_yaw + self.yaw_off))
             self.prev = (L, R, yaw)
             self.o_trail.append(tuple(self.odom))
         self.yaw_ts = m["ts"]
-        self._refresh_fix()
 
     def on_lidar(self, m):
         arr = np.asarray(m["points"], dtype=float).reshape(-1, 2)
@@ -683,25 +725,34 @@ class Visualiser:
         g_age = (now - self.rv["ts"]) if self.rv else None
         e_age = (now - self.es["ts"]) if self.es else None
         g_fresh = self.gpos is not None and g_age is not None and g_age <= self.gnss_stale
-        self.tel = self.gpos if g_fresh else (tuple(self.odom) if self.odom is not None else None)
+        fx = self.est.fix if (self.placed and self.est.has_fix()) else None
+        self.tel = (fx[1], fx[2]) if fx else (self.gpos if g_fresh else (tuple(self.odom) if self.odom is not None else None))
 
-        # the goal robot appears at the first telemetry pose, and re-snaps once when the fix becomes cm-level
-        if self.goal is None and self.est.has_fix():
-            self.snap_goal()
-        if (not self.synced and self.est.has_fix() and FIX_RANK.get(self.gfix, 0) >= 3):
-            self.synced = True
+        # GNSS corrections slide in over about a second instead of jumping
+        if self.pend[0] or self.pend[1]:
+            k = 1 - math.exp(-dt / 1.0)
+            sx, sy = self.pend[0] * k, self.pend[1] * k
+            self.pend[0] -= sx
+            self.pend[1] -= sy
+            if fx:
+                self._shift_fix(sx, sy, 0.0)
+            if abs(self.pend[0]) + abs(self.pend[1]) < 1e-4:
+                self.pend = [0.0, 0.0]
+
+        # the goal (smooth) robot appears when the robot is placed
+        if self.goal is None and fx:
             self.snap_goal()
         self.step_goal(dt, now)
 
-        if self.tel is not None:                                   # ghost: smoothed raw telemetry
+        if fx:                                                      # ghost = the robot per odometry + lidar (does not bounce with GNSS)
             if self.ghost is None or self.a.ghost_smooth <= 0:
-                self.ghost = [self.tel[0], self.tel[1], self.o_yaw]
+                self.ghost = [fx[1], fx[2], fx[4]]
             else:
                 k = 1 - math.exp(-dt / self.a.ghost_smooth)
                 gh = self.ghost
-                gh[0] += (self.tel[0] - gh[0]) * k
-                gh[1] += (self.tel[1] - gh[1]) * k
-                gh[2] = wrap(gh[2] + wrap(self.o_yaw - gh[2]) * k)
+                gh[0] += (fx[1] - gh[0]) * k
+                gh[1] += (fx[2] - gh[1]) * k
+                gh[2] = wrap(gh[2] + wrap(fx[4] - gh[2]) * k)
 
         self._maybe_map(now)
         self._set_fast_artists(now)
@@ -736,7 +787,7 @@ class Visualiser:
         if self.lidar_dist is None or self.lidar_seq == self.map_seq:
             return
         self.map_seq = self.lidar_seq
-        if now - self.lidar_ts > LIDAR_STALE_S or len(self.lidar_dist) == 0:
+        if now - self.lidar_ts > LIDAR_STALE_S:
             return
         if self.lidar_near > 0.6:                                   # walls all round at 0.2 m = a bad scan / bad world image
             return
@@ -744,7 +795,13 @@ class Visualiser:
         if pose is None:
             return
         pose = self.est.pose_at(self.lidar_ts)
-        self.grid.integrate_scan(pose, self.lidar_ang, self.lidar_dist)
+        if not self.a.no_localise:                                  # line the scan up with the map first, then add it to the map
+            self.loc.refresh()
+            r = self.loc.match(pose, self.lidar_ang, self.lidar_dist)
+            if r and (r[0] or r[1] or r[2]):
+                self._shift_fix(0.3 * r[0], 0.3 * r[1], 0.3 * r[2])
+                pose = self.est.pose_at(self.lidar_ts)
+        self.grid.integrate_scan(pose, self.lidar_ang, self.lidar_dist, free_range=self.a.free_range)
 
     def _set_fast_artists(self, now):
         for line, tr in ((self.goal_line, self.goal_trail),):
@@ -857,15 +914,25 @@ class Visualiser:
                      (f"  age    {g_age:.1f} s{'  STALE' if stale else ''}", RED if stale else GREY)]
 
         rows += [("", WHITE), ("POSE  (m from map centre)", HDR)]
+        fx = self.est.fix if (self.placed and self.est.has_fix()) else None
+        if fx:
+            rows.append((f"  ROBOT  x={fx[1]:+8.2f}  y={fx[2]:+8.2f}   (odom + lidar)", WHITE))
+        else:
+            rows.append((f"  ROBOT  not placed yet: waiting for {self.a.min_fix}", AMBER))
         rows.append((f"  GNSS   x={self.gpos[0]:+8.2f}  y={self.gpos[1]:+8.2f}", WHITE) if self.gpos is not None
                     else ("  GNSS   no position", GREY))
+        if self.gps_err is not None and fx:
+            col = GREEN if self.gps_err < 0.3 else (AMBER if self.gps_err < 1.5 else RED)
+            rows.append((f"  GNSS is {self.gps_err:.2f} m from the robot" + ("" if self.anchored else "  (not anchored)"), col))
         if self.odom is not None:
-            rows.append((f"  ODOM   x={self.odom[0]:+8.2f}  y={self.odom[1]:+8.2f}", WHITE))
-            if self.gpos is not None:
-                rows.append((f"  drift  {math.hypot(self.odom[0] - self.gpos[0], self.odom[1] - self.gpos[1]):.2f} m (odom vs GNSS)", WHITE))
+            rows.append((f"  ODOM   x={self.odom[0]:+8.2f}  y={self.odom[1]:+8.2f}   (wheels only)", GREY))
         else:
             rows.append(("  ODOM   no data", GREY))
-        rows.append((f"  yaw    {math.degrees(self.o_yaw):+7.1f} deg" + ("" if self.have_yaw else "  (from enc)"), WHITE))
+        rows.append((f"  yaw    {math.degrees(fx[4]) if fx else math.degrees(self.o_yaw):+7.1f} deg"
+                     + ("" if self.have_yaw else "  (from enc)")
+                     + (f"  (lidar fix {math.degrees(self.yaw_off):+.1f})" if abs(self.yaw_off) > 1e-3 else ""), WHITE))
+        if not self.a.no_localise:
+            rows.append((f"  lidar  {self.loc.status}", GREY if "poor" in self.loc.status or "waiting" in self.loc.status else GREEN))
         if self.tel is not None:
             st = self.grid.state_at(*self.tel)
             rows.append((f"  map    {st}", RED if st in ("OCCUPIED", "off map") else WHITE))
@@ -884,15 +951,11 @@ class Visualiser:
                      (f"  accel  {imu['accel'][0]:+.2f} {imu['accel'][1]:+.2f} {imu['accel'][2]:+.2f}", WHITE),
                      (f"  age    {e_age:.1f} s{'  STALE' if stale else ''}", RED if stale else GREY)]
 
-        rows += [("", WHITE), ("TRACKING  (goal robot vs real)", HDR)]
-        if self.goal is not None and self.gpos is not None and self.g_ts is not None:
-            m = self.est.model_at(self.g_ts)             # where the goal robot was when the sample was taken
-            perr = math.hypot(m[0] - self.gpos[0], m[1] - self.gpos[1]) if m else 0.0
-            col = RED if perr > 1.0 else (AMBER if perr > 0.3 else GREEN)
-            rows.append((f"  speed  goal {self.goal[3]:+.2f}  real {self.v_meas:+.2f} m/s", WHITE))
-            rows.append((f"  error  {perr:.2f} m at sample time", col))
+        rows += [("", WHITE), ("SPEED", HDR)]
+        if self.goal is not None:
+            rows.append((f"  predicted {self.goal[3]:+.2f}   measured {self.v_meas:+.2f} m/s", WHITE))
         else:
-            rows.append(("  waiting for telemetry", GREY))
+            rows.append(("  waiting for the robot to be placed", GREY))
 
         rows += [("", WHITE), ("LIDAR  (port 5005)", HDR)]
         if self.lidar_ts is None:
@@ -954,6 +1017,10 @@ def main():
     ap.add_argument("--anchor-first-fix", action="store_true", help="put the map centre at the first GNSS fix instead")
     ap.add_argument("--min-fix", default="Float RTK", choices=["3D Fix", "DGNSS", "Float RTK", "Fixed RTK"],
                     help="worst fix quality allowed for mapping and navigation (default Float RTK)")
+    ap.add_argument("--free-range", type=float, default=6.0,
+                    help="metres of free space to mark along lidar beams that return nothing (open ground). 0 = off (default 6)")
+    ap.add_argument("--no-localise", action="store_true", help="don't correct the robot pose with the lidar")
+    ap.add_argument("--no-gps-fusion", action="store_true", help="don't let GNSS correct the robot after it is placed (testing)")
     ap.add_argument("--builtin-nav", action="store_true",
                     help="drive with the built-in planner in this program (testing). Default: only PUBLISH the clicked goal "
                          "(port 5008) and let your own planner publish cmd_vel and a path")

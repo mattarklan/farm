@@ -12,7 +12,7 @@ add_executable(rover_app
     src/motors/serial_port.cpp
     src/motors/motor_interface.cpp
     src/gps/gps_driver.cpp
-    src/planning/local_planner.cpp
+
     src/planning/theta_star.cpp
     src/localization/pose_estimator.cpp
     src/comms/udp_bus.cpp

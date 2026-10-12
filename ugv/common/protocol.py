@@ -181,6 +181,8 @@ _register(Message(
              "points": [[0.0, 2310.5], [1.0, 2305.2], [2.0, 2299.9]]},
     notes=[
         "The lidar sits at the GNSS antenna position and turns with the robot.",
+        "A beam that hits nothing is simply absent. The visualiser treats a gap of more than 3 degrees as open space "
+        "(free out to --free-range, default 6 m) and a completely empty scan as an open field, so send the scan even if it has no points.",
         "`ts` is the time the scan was completed. (The older payload used the key `timestamp` and had no `type`; "
         "decode() still accepts that.)",
     ]))

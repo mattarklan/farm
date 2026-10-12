@@ -54,22 +54,47 @@ class OccupancyGrid:
         row, col = row[ok], col[ok]
         self.grid[row, col] = np.clip(self.grid[row, col] + delta, L_MIN, L_MAX)   # duplicates count once
 
-    def integrate_scan(self, pose, angles_deg, dists_mm, yaw_offset_deg=0.0):
+    def integrate_scan(self, pose, angles_deg, dists_mm, yaw_offset_deg=0.0, free_range=6.0, gap_deg=3.0):
         """pose = (x, y, yaw) of the lidar when the scan was taken.
-        angles are clockwise from the robot's front (like a real RPLidar), distances in mm."""
+        angles are clockwise from the robot's front (like a real RPLidar), distances in mm.
+
+        A lidar reports NOTHING for a beam that hits nothing (open ground, or a wall further than its range).
+        That is information too: the space along that beam is empty. Gaps in the scan wider than `gap_deg`
+        are therefore marked free out to `free_range` metres (0 turns this off). Narrow gaps are ignored,
+        because a single missing beam is usually just a dropped reading, not open space."""
         px, py, yaw = pose
-        bearing = yaw - np.radians(np.asarray(angles_deg, float) + yaw_offset_deg)   # clockwise -> counter-clockwise
+        ang = (np.asarray(angles_deg, float) + yaw_offset_deg) % 360.0
         d = np.asarray(dists_mm, float) / 1000.0
         keep = d > 0.05
-        bearing, d = bearing[keep], d[keep]
-        if d.size == 0:
+        ang, d = ang[keep], d[keep]
+        bearing = yaw - np.radians(ang)                              # clockwise -> counter-clockwise
+
+        # beams that saw nothing: fill the wide gaps between the beams that did return
+        gap_b = np.empty(0)
+        if free_range > 0:
+            if ang.size >= 2:
+                srt = np.sort(ang)
+                nxt = np.roll(srt, -1)
+                width = (nxt - srt) % 360.0
+                parts = []
+                for lo, w in zip(srt[width > gap_deg], width[width > gap_deg]):
+                    parts.append(lo + np.arange(1.0, w - 0.5, 1.0))   # one beam per degree inside the gap
+                if parts:
+                    gap_b = yaw - np.radians(np.concatenate(parts))
+            elif ang.size == 0:                                       # nothing at all returned: a completely open field
+                gap_b = yaw - np.radians(np.arange(0.0, 360.0, 1.0))
+        if d.size == 0 and gap_b.size == 0:
             return
-        c, s = np.cos(bearing), np.sin(bearing)
+
+        all_b = np.concatenate((bearing, gap_b))
+        all_d = np.concatenate((d, np.full(gap_b.size, free_range + self.res)))
+        c, s = np.cos(all_b), np.sin(all_b)
         step = self.res * 0.5
-        t = np.arange(int(d.max() / step) + 1) * step
-        bi, ti = np.nonzero(t[None, :] < (d[:, None] - self.res))   # free space: up to a cell short of the hit
+        t = np.arange(int(all_d.max() / step) + 1) * step
+        bi, ti = np.nonzero(t[None, :] < (all_d[:, None] - self.res))   # free space: up to a cell short of the hit
         self._bump(px + t[ti] * c[bi], py + t[ti] * s[bi], L_FREE)
-        self._bump(px + d * c, py + d * s, L_OCC)                    # the hit itself (after free, so it wins)
+        if d.size:
+            self._bump(px + d * np.cos(bearing), py + d * np.sin(bearing), L_OCC)   # the hit itself (after free, so it wins)
         self.scans += 1
 
     # ---- reading the map ----

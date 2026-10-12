@@ -15,7 +15,7 @@ The robot obeys the same speed and acceleration limits as everything else (commo
   python sim_robot.py --cmap ../cmap.png                 # sits still until a cmd_vel arrives
   python sim_robot.py --cmap ../cmap.png --circle 2      # drives a 2 m radius circle by itself
   python sim_robot.py --fix "Fixed RTK"                  # skip the fix warm-up sequence
-  python sim_robot.py --esp-hz 5 --gnss-hz 5             # faster telemetry (default 1 Hz each)
+  python sim_robot.py --esp-hz 5 --gnss-hz 5             # telemetry rates (default esp 20 Hz, gnss 1 Hz)
 
 Normally started for you by run_sim.py.   Layout: ugv/sims/sim_robot.py
 """
@@ -105,7 +105,7 @@ def main():
     ap.add_argument("--max-turn", type=float, default=cfg.MAX_TURN)
     ap.add_argument("--lin-accel", type=float, default=cfg.LIN_ACCEL)
     ap.add_argument("--ang-accel", type=float, default=cfg.ANG_ACCEL)
-    ap.add_argument("--esp-hz", type=float, default=1.0, help="encoder/IMU message rate (default 1)")
+    ap.add_argument("--esp-hz", type=float, default=20.0, help="encoder/IMU message rate (default 20, like a real ESP32 loop)")
     ap.add_argument("--gnss-hz", type=float, default=1.0, help="rtk message rate (default 1)")
     ap.add_argument("--fix", choices=STAGE_NAMES, help="lock to one fix state (default: realistic warm-up)")
     ap.add_argument("--wheel-base", type=float, default=cfg.WHEEL_BASE)
@@ -118,6 +118,9 @@ def main():
     ap.add_argument("--invert", action="store_true", help="world image is black = free, white = wall")
     ap.add_argument("--lidar-pose-port", type=int, default=5000, help="UDP port of sim_lidar's ground-truth pose input (0 = off)")
     ap.add_argument("--lidar-pose-hz", type=float, default=20.0)
+    ap.add_argument("--odom-error", type=float, default=0.02,
+                    help="right wheel reads this fraction too far (0.02 = 2%%), so wheel odometry drifts like a real one (default 0.02; 0 = perfect)")
+    ap.add_argument("--yaw-drift", type=float, default=2.0, help="IMU heading drifts this many degrees per minute (default 2; 0 = perfect)")
     ap.add_argument("--quiet", action="store_true", help="no periodic status line")
     args = ap.parse_args()
 
@@ -149,6 +152,7 @@ def main():
     tpm = args.ticks_per_rev / (math.pi * args.wheel_diameter)        # ticks per metre of wheel travel
     cos_lat0 = math.cos(math.radians(args.lat))
     x, y, yaw = args.start_x, args.start_y, math.radians(args.start_yaw)
+    t_start = time.time()
     v = w = lin_acc = 0.0
     left_f = right_f = 0.0
     seq = 0
@@ -209,7 +213,7 @@ def main():
                 lin_acc = (nv - v) / dt
                 v, w, x, y, yaw = nv, nw, nx, ny, nyaw
                 left_f += (v - w * args.wheel_base / 2) * tpm * dt
-                right_f += (v + w * args.wheel_base / 2) * tpm * dt
+                right_f += (v + w * args.wheel_base / 2) * tpm * dt * (1.0 + args.odom_error)   # a slightly-off right wheel
 
             # ---- publish rtk ----
             if now >= next_g:
@@ -229,6 +233,7 @@ def main():
             if now >= next_e:
                 next_e = max(next_e + 1.0 / args.esp_hz, now)
                 seq += 1
+                yaw_imu = yaw + math.radians(args.yaw_drift) / 60.0 * (time.time() - t_start)   # drifting gyro-fused heading
                 try:
                     pub.send("esp", seq=seq,
                              enc={"left_ticks": int(round(left_f)), "right_ticks": int(round(right_f)),
@@ -236,7 +241,7 @@ def main():
                                   "right_vel": (v + w * args.wheel_base / 2) * tpm},
                              imu={"gyro": [random.gauss(0, 0.002), random.gauss(0, 0.002), w + random.gauss(0, 0.003)],
                                   "accel": [lin_acc + random.gauss(0, 0.03), v * w + random.gauss(0, 0.02), G + random.gauss(0, 0.03)],
-                                  "quat": [math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)]})
+                                  "quat": [math.cos(yaw_imu / 2), 0.0, 0.0, math.sin(yaw_imu / 2)]})
                 except ProtocolError as e:
                     print(f"[SIM] esp message rejected: {e}", flush=True)
 

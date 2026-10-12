@@ -296,30 +296,6 @@ src/motors/serial_port.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.s
 .PHONY : src/motors/serial_port.cpp.s
 
-src/planning/local_planner.obj: src/planning/local_planner.cpp.obj
-.PHONY : src/planning/local_planner.obj
-
-# target to build an object file
-src/planning/local_planner.cpp.obj:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.obj
-.PHONY : src/planning/local_planner.cpp.obj
-
-src/planning/local_planner.i: src/planning/local_planner.cpp.i
-.PHONY : src/planning/local_planner.i
-
-# target to preprocess a source file
-src/planning/local_planner.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.i
-.PHONY : src/planning/local_planner.cpp.i
-
-src/planning/local_planner.s: src/planning/local_planner.cpp.s
-.PHONY : src/planning/local_planner.s
-
-# target to generate assembly for a file
-src/planning/local_planner.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/local_planner.cpp.s
-.PHONY : src/planning/local_planner.cpp.s
-
 src/planning/theta_star.obj: src/planning/theta_star.cpp.obj
 .PHONY : src/planning/theta_star.obj
 
@@ -374,9 +350,6 @@ help:
 	@echo ... src/motors/serial_port.obj
 	@echo ... src/motors/serial_port.i
 	@echo ... src/motors/serial_port.s
-	@echo ... src/planning/local_planner.obj
-	@echo ... src/planning/local_planner.i
-	@echo ... src/planning/local_planner.s
 	@echo ... src/planning/theta_star.obj
 	@echo ... src/planning/theta_star.i
 	@echo ... src/planning/theta_star.s
