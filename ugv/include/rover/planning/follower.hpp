@@ -9,8 +9,12 @@ namespace rover::planning {
 
 class PurePursuit {
 public:
-    PurePursuit(double max_speed, double max_turn, double lookahead = 0.6, double goal_tol = 0.25)
-        : max_speed_(max_speed), max_turn_(max_turn), lookahead_(lookahead), goal_tol_(goal_tol), seg_(0) {}
+    // min_turn_radius : tightest arc (m) used when the target is off to the side / behind
+    // arc_speed       : minimum forward speed (m/s) kept while arcing, so the rover never spins on the spot
+    PurePursuit(double max_speed, double max_turn, double lookahead = 0.6, double goal_tol = 0.25,
+                double min_turn_radius = 0.5, double arc_speed = 0.3)
+        : max_speed_(max_speed), max_turn_(max_turn), lookahead_(lookahead), goal_tol_(goal_tol),
+          min_radius_(min_turn_radius), arc_speed_(arc_speed), seg_(0) {}
 
     void set_path(const std::vector<::Pose>& path) {
         path_ = path;
@@ -33,16 +37,27 @@ public:
         auto [tx, ty] = get_target(x, y);
         double alpha = wrap(std::atan2(ty - y, tx - x) - yaw);
         
-        // Scale angular velocity sharply to swing around toward the target
-        double w = std::clamp(2.5 * alpha, -max_turn_, max_turn_);
+        const double abs_alpha = std::abs(alpha);
 
-        // Bulb/Arc turn behavior: Allow a gentle forward creep (0.05) even when facing away,
-        // forcing a smooth arc turn instead of getting stuck or stalling on goals behind it.
-        double heading_factor = std::cos(alpha);
-        double v = max_speed_ * std::max(0.05, heading_factor * heading_factor);
-
+        // Forward speed: full speed when pointing at the target, falling off as the target
+        // swings to the side. Targets at/behind 90 deg get 0 here, but we never drop below
+        // arc_speed_, so the rover always drives forward along an arc (bulb turn) instead of
+        // stalling or pivoting on the spot.
+        double heading_factor = (abs_alpha < M_PI / 2.0) ? std::cos(alpha) : 0.0;
+        double v = std::max(max_speed_ * heading_factor * heading_factor, arc_speed_);
         v = std::min(v, 0.15 + 1.0 * dist); // ease off near goal
-        v *= (1.0 - 0.4 * std::abs(w) / max_turn_); // slow down in tight turns
+
+        // Turning radius we are allowed to use. If the goal is behind us AND closer than the
+        // turning circle, a normal arc would orbit the goal forever, so tighten the arc and slow down.
+        double radius = min_radius_;
+        if (abs_alpha > M_PI / 2.0 && dist < 2.0 * min_radius_) {
+            radius = 0.15;
+            v = std::min(v, 0.15);
+        }
+
+        // Angular rate is limited by v / radius, which is what makes the path a real arc.
+        double w_limit = std::min(max_turn_, v / radius);
+        double w = std::clamp(2.5 * alpha, -w_limit, w_limit);
 
         cmd.linear = v;
         cmd.angular = w;
@@ -50,8 +65,10 @@ public:
     }
 
 private:
+    // Wrap to [-pi, pi). The old std::fmod version returned values in (-2pi, -pi) for
+    // negative inputs, which made the rover turn the long way round (or stall) for goals behind it.
     double wrap(double a) const {
-        return std::fmod(a + M_PI, 2.0 * M_PI) - M_PI;
+        return a - 2.0 * M_PI * std::floor((a + M_PI) / (2.0 * M_PI));
     }
 
     std::pair<double, double> get_target(double x, double y) {
@@ -109,6 +126,8 @@ private:
     double max_turn_;
     double lookahead_;
     double goal_tol_;
+    double min_radius_;
+    double arc_speed_;
     std::vector<::Pose> path_;
     size_t seg_;
 };

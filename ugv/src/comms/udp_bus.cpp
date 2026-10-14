@@ -26,8 +26,10 @@ UdpBus::UdpBus(const std::string& group_ip, const std::string& interface_ip)
     int ttl = 2;
     setsockopt(send_socket_, IPPROTO_IP, IP_MULTICAST_TTL, (char*)&ttl, sizeof(ttl));
 
-    // Listen on protocol ports: 5006 (esp/cmd_vel), 5007 (rtk), 5008 (pose/goal/path)
-    std::vector<int> ports_to_listen = {5006, 5007, 5008};
+    // Listen on protocol ports: 5005 (lidar), 5006 (esp/cmd_vel), 5007 (rtk), 5008 (pose/goal/path).
+    // 5005 was missing before, so the rover never received a single LiDAR scan and its map stayed
+    // empty: the planner saw no walls at all and planned a straight line through them.
+    std::vector<int> ports_to_listen = {5005, 5006, 5007, 5008};
 
     for (int port : ports_to_listen) {
 #ifdef _WIN32

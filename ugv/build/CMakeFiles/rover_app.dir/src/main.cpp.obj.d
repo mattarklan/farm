@@ -1,62 +1,21 @@
 CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:\Users\Matt\Desktop\farm\ugv\src\main.cpp \
- C:/Users/Matt/Desktop/farm/ugv/include/rover/state/rover_state.hpp \
- C:/Users/Matt/Desktop/farm/ugv/include/rover/common/types.hpp \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstdint \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/planning/lcostmap.hpp \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/vector \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/requires_hosted.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/c++config.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/os_defines.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/cpu_defines.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/pstl/pstl_config.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/stdint.h \
- C:/w64devkit/include/stdint.h C:/w64devkit/include/crtdefs.h \
- C:/w64devkit/include/corecrt.h C:/w64devkit/include/_mingw.h \
- C:/w64devkit/include/_mingw_mac.h C:/w64devkit/include/_mingw_secapi.h \
- C:/w64devkit/include/vadefs.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/stddef.h \
- C:/w64devkit/include/stddef.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/mutex \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/requires_hosted.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tuple \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_pair.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/type_traits \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_algobase.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/cpp_type_traits.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/version.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/type_traits \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/type_traits.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/numeric_traits.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_pair.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/move.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/utility.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/uses_allocator.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/invoke.h \
- C:/w64devkit/include/errno.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/chrono.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ratio \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/limits \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ctime \
- C:/w64devkit/include/time.h C:/w64devkit/include/sys/timeb.h \
- C:/w64devkit/include/sec_api/sys/timeb_s.h \
- C:/w64devkit/include/_timeval.h C:/w64devkit/include/pthread_time.h \
- C:/w64devkit/include/pthread_compat.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/parse_numbers.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/numeric_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/cpp_type_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/type_traits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/functexcept.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/exception_defines.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/std_mutex.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/gthr.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/gthr-default.h \
- C:/w64devkit/include/pthread.h C:/w64devkit/include/sys/types.h \
- C:/w64devkit/include/_mingw_off_t.h C:/w64devkit/include/process.h \
- C:/w64devkit/include/corecrt_startup.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/limits.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/syslimits.h \
- C:/w64devkit/include/limits.h C:/w64devkit/include/signal.h \
- C:/w64devkit/include/pthread_signal.h C:/w64devkit/include/sched.h \
- C:/w64devkit/include/pthread_unistd.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/unique_lock.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/error_constants.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cerrno \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/atomicity.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/atomic_word.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/vector \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_algobase.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator_base_types.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_iterator_base_funcs.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/concept_check.h \
@@ -75,6 +34,7 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/new \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/exception.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_except.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/exception_defines.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/new_throw.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memoryfwd.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_construct.h \
@@ -93,7 +53,50 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/vector.tcc \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/memory_resource.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstddef \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/stddef.h \
+ C:/w64devkit/include/stddef.h C:/w64devkit/include/crtdefs.h \
+ C:/w64devkit/include/corecrt.h C:/w64devkit/include/_mingw.h \
+ C:/w64devkit/include/_mingw_mac.h C:/w64devkit/include/_mingw_secapi.h \
+ C:/w64devkit/include/vadefs.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/uses_allocator.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/uses_allocator_args.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/tuple \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/invoke.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/utility \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_relops.h \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/state/rover_state.hpp \
+ C:/Users/Matt/Desktop/farm/ugv/include/rover/common/types.hpp \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cstdint \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/stdint.h \
+ C:/w64devkit/include/stdint.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/mutex \
+ C:/w64devkit/include/errno.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/chrono.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ratio \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/limits \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ctime \
+ C:/w64devkit/include/time.h C:/w64devkit/include/sys/timeb.h \
+ C:/w64devkit/include/sec_api/sys/timeb_s.h \
+ C:/w64devkit/include/_timeval.h C:/w64devkit/include/pthread_time.h \
+ C:/w64devkit/include/pthread_compat.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/parse_numbers.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/functexcept.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/std_mutex.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/gthr.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/gthr-default.h \
+ C:/w64devkit/include/pthread.h C:/w64devkit/include/sys/types.h \
+ C:/w64devkit/include/_mingw_off_t.h C:/w64devkit/include/process.h \
+ C:/w64devkit/include/corecrt_startup.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/limits.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/syslimits.h \
+ C:/w64devkit/include/limits.h C:/w64devkit/include/signal.h \
+ C:/w64devkit/include/pthread_signal.h C:/w64devkit/include/sched.h \
+ C:/w64devkit/include/pthread_unistd.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/unique_lock.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/error_constants.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/cerrno \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/atomicity.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/i686-w64-mingw32/bits/atomic_word.h \
  C:/Users/Matt/Desktop/farm/ugv/include/rover/gps/gps_driver.hpp \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/atomic \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/atomic_base.h \
@@ -260,8 +263,6 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/enable_special_members.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/node_handle.h \
  C:/Users/Matt/Desktop/farm/ugv/include/rover/planning/follower.hpp \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/utility \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_relops.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/algorithm \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/stl_algo.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/algorithmfwd.h \
@@ -320,4 +321,15 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_conv.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/quoted_string.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/sstream \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/csignal \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/filesystem \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_fwd.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_path.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/codecvt \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/concurrence.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/shared_ptr.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/shared_ptr_base.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/allocated_ptr.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_dir.h \
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_ops.h

@@ -3,3 +3,5 @@ currently need to get the rtk/lora and the esp32 working.
 some shitty mock script on the esp32 should do it for now
 
 esp sim tries to write sim_esp.dat to random places so it needs the path checking
+
+app rover closes when robot reaches destination. path planner doesnt go around obstacles. i think it should create a map that it updates as it moves along and planner can use that. it will need loop closure and for the map creation to be much better than it currently is. robot needs to be able to turn tighter.

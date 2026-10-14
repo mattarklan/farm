@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rover/common/types.hpp"
+#include <cstdint>
 #include <vector>
 #include <queue>
 #include <unordered_map>
@@ -31,6 +32,11 @@ class ThetaStarPlanner {
 public:
     ThetaStarPlanner(int map_width_cells, int map_height_cells, double resolution_m);
 
+    // World coordinates (m) of the corner of cell (0,0). The grid passed to plan_path()
+    // MUST be anchored here and stay fixed in the world (not follow the rover).
+    void set_origin(double origin_x, double origin_y) { origin_x_ = origin_x; origin_y_ = origin_y; }
+
+    // grid: 0 = free, anything else = blocked (already inflated by the caller).
     std::vector<Pose> plan_path(const Pose& start_pose, 
                                 const Pose& goal_pose, 
                                 const std::vector<uint8_t>& occupancy_grid);
@@ -40,12 +46,15 @@ private:
     double EuclideanDistance(const GridNode* a, const GridNode* b) const;
     double Heuristic(const GridNode* a, const GridNode* b) const;
 
-    bool world_to_grid(double wx, double wy, const Pose& start_pose, int& gx, int& gy) const;
-    Pose grid_to_world(int gx, int gy, const Pose& start_pose) const;
+    bool world_to_grid(double wx, double wy, int& gx, int& gy) const;
+    Pose grid_to_world(int gx, int gy) const;
+    bool find_nearest_free(int& x, int& y, const std::vector<uint8_t>& grid, int max_radius) const;
 
     int width_;
     int height_;
     double resolution_;
+    double origin_x_{0.0};
+    double origin_y_{0.0};
 };
 
 } // namespace rover::planning

@@ -1,7 +1,9 @@
 #include "rover/planning/theta_star.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
+#include <memory>
 
 namespace rover::planning {
 
@@ -18,24 +20,42 @@ double ThetaStarPlanner::Heuristic(const GridNode* a, const GridNode* b) const {
     return EuclideanDistance(a, b);
 }
 
-// Map world ENU coordinates to cell indices relative to grid origin (0,0 mapped to map center)
-bool ThetaStarPlanner::world_to_grid(double wx, double wy, const Pose& start_pose, int& gx, int& gy) const {
-    // Offset relative to starting pose, placing start_pose near the center of the grid (width/2, height/2)
-    double rel_x = wx - start_pose.x + (width_ * resolution_ / 2.0);
-    double rel_y = wy - start_pose.y + (height_ * resolution_ / 2.0);
-
-    gx = static_cast<int>(std::floor(rel_x / resolution_));
-    gy = static_cast<int>(std::floor(rel_y / resolution_));
-
+// World ENU -> cell index. The grid is anchored at a FIXED world origin (set_origin), so cells
+// keep their world position as the rover drives around.
+bool ThetaStarPlanner::world_to_grid(double wx, double wy, int& gx, int& gy) const {
+    gx = static_cast<int>(std::floor((wx - origin_x_) / resolution_));
+    gy = static_cast<int>(std::floor((wy - origin_y_) / resolution_));
     return (gx >= 0 && gx < width_ && gy >= 0 && gy < height_);
 }
 
-Pose ThetaStarPlanner::grid_to_world(int gx, int gy, const Pose& start_pose) const {
+Pose ThetaStarPlanner::grid_to_world(int gx, int gy) const {
     Pose p;
-    p.x = (static_cast<double>(gx) + 0.5) * resolution_ - (width_ * resolution_ / 2.0) + start_pose.x;
-    p.y = (static_cast<double>(gy) + 0.5) * resolution_ - (height_ * resolution_ / 2.0) + start_pose.y;
+    p.x = origin_x_ + (static_cast<double>(gx) + 0.5) * resolution_;
+    p.y = origin_y_ + (static_cast<double>(gy) + 0.5) * resolution_;
     p.yaw = 0.0;
     return p;
+}
+
+// If (x,y) is blocked, move it to the closest free cell within max_radius cells.
+bool ThetaStarPlanner::find_nearest_free(int& x, int& y, const std::vector<uint8_t>& grid, int max_radius) const {
+    if (grid[y * width_ + x] == 0) return true;
+
+    for (int r = 1; r <= max_radius; ++r) {
+        double best_d2 = 1e18;
+        int bx = -1, by = -1;
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (std::max(std::abs(dx), std::abs(dy)) != r) continue; // ring only
+                int nx = x + dx, ny = y + dy;
+                if (nx < 0 || nx >= width_ || ny < 0 || ny >= height_) continue;
+                if (grid[ny * width_ + nx] != 0) continue;
+                double d2 = static_cast<double>(dx * dx + dy * dy);
+                if (d2 < best_d2) { best_d2 = d2; bx = nx; by = ny; }
+            }
+        }
+        if (bx >= 0) { x = bx; y = by; return true; }
+    }
+    return false;
 }
 
 bool ThetaStarPlanner::line_of_sight(const GridNode* s, const GridNode* s_prime, const std::vector<uint8_t>& grid) const {
@@ -49,23 +69,22 @@ bool ThetaStarPlanner::line_of_sight(const GridNode* s, const GridNode* s_prime,
 
     while (true) {
         if (x0 < 0 || x0 >= width_ || y0 < 0 || y0 >= height_) return false;
-
-        int idx = y0 * width_ + x0;
-        if (idx >= 0 && idx < static_cast<int>(grid.size())) {
-            if (grid[idx] != 0) return false;
-        }
-
+        if (grid[y0 * width_ + x0] != 0) return false;
         if (x0 == x1 && y0 == y1) break;
 
         int e2 = 2 * err;
-        if (e2 > -dy) {
-            err -= dy;
-            x0 += sx;
+        bool step_x = e2 > -dy;
+        bool step_y = e2 < dx;
+
+        // Diagonal step: don't squeeze between two touching obstacle corners
+        if (step_x && step_y) {
+            int ax = x0 + sx, ay = y0 + sy;
+            if (ax < 0 || ax >= width_ || ay < 0 || ay >= height_) return false;
+            if (grid[y0 * width_ + ax] != 0 || grid[ay * width_ + x0] != 0) return false;
         }
-        if (e2 < dx) {
-            err += dx;
-            y0 += sy;
-        }
+
+        if (step_x) { err -= dy; x0 += sx; }
+        if (step_y) { err += dx; y0 += sy; }
     }
     return true;
 }
@@ -76,51 +95,73 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
 {
     std::vector<Pose> path;
 
-    int start_gx, start_gy, goal_gx, goal_gy;
-    if (!world_to_grid(start_pose.x, start_pose.y, start_pose, start_gx, start_gy) ||
-        !world_to_grid(goal_pose.x, goal_pose.y, start_pose, goal_gx, goal_gy)) {
-        std::cerr << "[Theta* ERROR] Start or Goal coordinates mapped out of bounds!\n"
-                  << "  Start Pose: (" << start_pose.x << ", " << start_pose.y << ") -> Grid: (" << start_gx << ", " << start_gy << ")\n"
-                  << "  Goal Pose:  (" << goal_pose.x << ", " << goal_pose.y << ") -> Grid: (" << goal_gx << ", " << goal_gy << ")\n";
+    if (static_cast<int>(grid.size()) != width_ * height_) {
+        std::cerr << "[Theta* ERROR] Grid size does not match planner dimensions!\n";
         return path;
     }
 
-    // Verify start or goal are not inside an obstacle
-    int start_idx = start_gy * width_ + start_gx;
-    int goal_idx  = goal_gy * width_ + goal_gx;
-    if (grid[start_idx] != 0 || grid[goal_idx] != 0) {
-        std::cerr << "[Theta* ERROR] Start or Goal node coincides with an occupied obstacle cell!\n";
+    int start_gx, start_gy, goal_gx, goal_gy;
+    if (!world_to_grid(start_pose.x, start_pose.y, start_gx, start_gy) ||
+        !world_to_grid(goal_pose.x, goal_pose.y, goal_gx, goal_gy)) {
+        std::cerr << "[Theta* ERROR] Start or Goal is outside the map!\n"
+                  << "  Start: (" << start_pose.x << ", " << start_pose.y << ") -> cell (" << start_gx << ", " << start_gy << ")\n"
+                  << "  Goal:  (" << goal_pose.x << ", " << goal_pose.y << ") -> cell (" << goal_gx << ", " << goal_gy << ")\n";
         return path;
     }
+
+    // Start/goal inside an obstacle or its inflation: snap to the nearest free cell rather than failing.
+    if (!find_nearest_free(start_gx, start_gy, grid, 8)) {
+        std::cerr << "[Theta* ERROR] No free cell near the start position!\n";
+        return path;
+    }
+    const int orig_goal_gx = goal_gx, orig_goal_gy = goal_gy;
+    if (!find_nearest_free(goal_gx, goal_gy, grid, 15)) {
+        std::cerr << "[Theta* ERROR] Goal is inside an obstacle and no free cell is nearby!\n";
+        return path;
+    }
+    const bool goal_moved = (goal_gx != orig_goal_gx || goal_gy != orig_goal_gy);
+    if (goal_moved) {
+        std::cerr << "[Theta*] Goal was blocked; moved to nearest free cell.\n";
+    }
+
+    const int N = width_ * height_;
+    std::vector<GridNode*> nodes(N, nullptr);
+    std::vector<uint8_t> closed(N, 0);
+    std::vector<std::unique_ptr<GridNode>> pool;
+
+    auto get_node = [&](int x, int y) -> GridNode* {
+        int k = y * width_ + x;
+        if (!nodes[k]) {
+            pool.emplace_back(new GridNode{x, y, 1e9, 0.0, nullptr});
+            GridNode* n = pool.back().get();
+            n->h_cost = std::hypot(static_cast<double>(x - goal_gx), static_cast<double>(y - goal_gy)) * resolution_;
+            nodes[k] = n;
+        }
+        return nodes[k];
+    };
 
     std::priority_queue<GridNode*, std::vector<GridNode*>, CompareNode> open_set;
-    std::unordered_map<int, GridNode*> all_nodes;
-    std::unordered_map<int, bool> closed_set;
 
-    auto get_node_key = [this](int x, int y) { return y * width_ + x; };
-
-    GridNode* start_node = new GridNode{start_gx, start_gy, 0.0, 0.0, nullptr};
-    GridNode* goal_node  = new GridNode{goal_gx, goal_gy, 1e9, 0.0, nullptr};
-
-    start_node->h_cost = Heuristic(start_node, goal_node);
+    GridNode* start_node = get_node(start_gx, start_gy);
+    start_node->g_cost = 0.0;
     open_set.push(start_node);
-    all_nodes[get_node_key(start_gx, start_gy)] = start_node;
 
     static const int neighbors[8][2] = {
         {1,0}, {-1,0}, {0,1}, {0,-1},
         {1,1}, {1,-1}, {-1,1}, {-1,-1}
     };
 
-    GridNode* current = nullptr;
+    GridNode* goal_found = nullptr;
     while (!open_set.empty()) {
-        current = open_set.top();
+        GridNode* current = open_set.top();
         open_set.pop();
 
-        int current_key = get_node_key(current->x, current->y);
-        if (closed_set[current_key]) continue;
-        closed_set[current_key] = true;
+        int current_key = current->y * width_ + current->x;
+        if (closed[current_key]) continue;
+        closed[current_key] = 1;
 
         if (current->x == goal_gx && current->y == goal_gy) {
+            goal_found = current;
             break;
         }
 
@@ -130,21 +171,16 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
 
             if (nx < 0 || nx >= width_ || ny < 0 || ny >= height_) continue;
 
-            int n_key = get_node_key(nx, ny);
-            if (closed_set[n_key]) continue;
+            int n_key = ny * width_ + nx;
+            if (closed[n_key]) continue;
+            if (grid[n_key] != 0) continue;
 
-            if (n_key >= 0 && n_key < static_cast<int>(grid.size()) && grid[n_key] != 0) {
-                continue;
+            // No cutting corners on diagonal moves
+            if (dir[0] != 0 && dir[1] != 0) {
+                if (grid[current->y * width_ + nx] != 0 || grid[ny * width_ + current->x] != 0) continue;
             }
 
-            GridNode* neighbor = nullptr;
-            if (all_nodes.find(n_key) == all_nodes.end()) {
-                neighbor = new GridNode{nx, ny, 1e9, 0.0, nullptr};
-                neighbor->h_cost = Heuristic(neighbor, goal_node);
-                all_nodes[n_key] = neighbor;
-            } else {
-                neighbor = all_nodes[n_key];
-            }
+            GridNode* neighbor = get_node(nx, ny);
 
             if (current->parent && line_of_sight(current->parent, neighbor, grid)) {
                 double new_g = current->parent->g_cost + EuclideanDistance(current->parent, neighbor);
@@ -164,27 +200,36 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
         }
     }
 
-    if (current && current->x == goal_gx && current->y == goal_gy) {
-        GridNode* curr = current;
-        while (curr) {
-            path.push_back(grid_to_world(curr->x, curr->y, start_pose));
-            curr = curr->parent;
-        }
-        std::reverse(path.begin(), path.end());
-
-        for (size_t i = 0; i < path.size(); ++i) {
-            if (i + 1 < path.size()) {
-                path[i].yaw = std::atan2(path[i+1].y - path[i].y, path[i+1].x - path[i].x);
-            } else if (i > 0) {
-                path[i].yaw = path[i-1].yaw;
-            }
-        }
+    if (!goal_found) {
+        std::cerr << "[Theta*] No path found to goal.\n";
+        return path;
     }
 
-    for (auto& pair : all_nodes) {
-        delete pair.second;
+    for (GridNode* curr = goal_found; curr; curr = curr->parent) {
+        path.push_back(grid_to_world(curr->x, curr->y));
     }
-    delete goal_node;
+    std::reverse(path.begin(), path.end());
+
+    // Use the exact start pose / goal point instead of cell centers
+    path.front().x = start_pose.x;
+    path.front().y = start_pose.y;
+    if (!goal_moved) {
+        if (path.size() == 1) {
+            path.push_back(path.front());
+        }
+        path.back().x = goal_pose.x;
+        path.back().y = goal_pose.y;
+    } else if (path.size() == 1) {
+        path.push_back(grid_to_world(goal_gx, goal_gy));
+    }
+
+    for (size_t i = 0; i < path.size(); ++i) {
+        if (i + 1 < path.size()) {
+            path[i].yaw = std::atan2(path[i+1].y - path[i].y, path[i+1].x - path[i].x);
+        } else if (i > 0) {
+            path[i].yaw = path[i-1].yaw;
+        }
+    }
 
     return path;
 }

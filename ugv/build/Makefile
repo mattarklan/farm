@@ -296,6 +296,30 @@ src/motors/serial_port.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/motors/serial_port.cpp.s
 .PHONY : src/motors/serial_port.cpp.s
 
+src/planning/lcostmap.obj: src/planning/lcostmap.cpp.obj
+.PHONY : src/planning/lcostmap.obj
+
+# target to build an object file
+src/planning/lcostmap.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/lcostmap.cpp.obj
+.PHONY : src/planning/lcostmap.cpp.obj
+
+src/planning/lcostmap.i: src/planning/lcostmap.cpp.i
+.PHONY : src/planning/lcostmap.i
+
+# target to preprocess a source file
+src/planning/lcostmap.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/lcostmap.cpp.i
+.PHONY : src/planning/lcostmap.cpp.i
+
+src/planning/lcostmap.s: src/planning/lcostmap.cpp.s
+.PHONY : src/planning/lcostmap.s
+
+# target to generate assembly for a file
+src/planning/lcostmap.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/planning/lcostmap.cpp.s
+.PHONY : src/planning/lcostmap.cpp.s
+
 src/planning/theta_star.obj: src/planning/theta_star.cpp.obj
 .PHONY : src/planning/theta_star.obj
 
@@ -350,6 +374,9 @@ help:
 	@echo ... src/motors/serial_port.obj
 	@echo ... src/motors/serial_port.i
 	@echo ... src/motors/serial_port.s
+	@echo ... src/planning/lcostmap.obj
+	@echo ... src/planning/lcostmap.i
+	@echo ... src/planning/lcostmap.s
 	@echo ... src/planning/theta_star.obj
 	@echo ... src/planning/theta_star.i
 	@echo ... src/planning/theta_star.s
