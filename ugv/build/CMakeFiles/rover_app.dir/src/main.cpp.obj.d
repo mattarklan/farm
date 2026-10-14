@@ -321,15 +321,4 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/locale_conv.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/quoted_string.h \
  C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/sstream \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/csignal \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/filesystem \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_fwd.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_path.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/codecvt \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/ext/concurrence.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/shared_ptr.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/shared_ptr_base.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/allocated_ptr.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_dir.h \
- C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/fs_ops.h
+ C:/w64devkit/lib/gcc/i686-w64-mingw32/16.2.0/include/c++/bits/sstream.tcc
