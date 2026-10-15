@@ -1,3 +1,4 @@
+#include <winsock2.h>
 #include "rover/planning/lcostmap.hpp"
 #include "rover/state/rover_state.hpp"
 #include "rover/gps/gps_driver.hpp"
@@ -18,6 +19,20 @@
 #include <cmath>
 #include <algorithm>
 #include <cstdint>
+
+#include <csignal>
+#include <cstdlib>
+
+void crash_handler(int sig) {
+    std::cerr << "\n\n=========================================\n";
+    std::cerr << "[FATAL CRASH] Process received signal " << sig << " (Segmentation Fault / Abort).\n";
+    std::cerr << "A background thread or driver crashed at destination arrival.\n";
+    std::cerr << "=========================================\n";
+    std::cerr << "Press ENTER to close...";
+    std::string dummy;
+    std::getline(std::cin, dummy);
+    std::exit(sig);
+}
 
 // Helper to update rtk/rover_pos.dat with live JSON pose telemetry
 void update_rover_pos_file(const std::string& filepath, const Pose& pose) {
@@ -68,7 +83,7 @@ double extract_json_val(const std::string& json_str, const std::string& key) {
     }
 }
 
-// Robust Occupancy Map with dynamic re-centering support
+// Robust Occupancy Map with noise-filtered wall memory and dynamic re-centering
 class OccupancyMap {
 public:
     OccupancyMap(int w, int h, double res) : w_(w), h_(h), res_(res), lo_(w * h, 0) {}
@@ -81,21 +96,20 @@ public:
         init_ = true;
     }
 
-    // Shift map origin dynamically if rover approaches boundaries, keeping rover centered
     void checkAndRecentering(double rx, double ry) {
         if (!init_) {
             init(rx, ry);
             return;
         }
-        double margin = 5.0; // meters from edge
+        double margin = 6.0;
         double cur_w = w_ * res_;
         double cur_h = h_ * res_;
 
         if (rx < ox_ + margin || rx > ox_ + cur_w - margin ||
             ry < oy_ + margin || ry > oy_ + cur_h - margin) {
             std::cout << "[OccupancyMap] Re-centering map around rover at (" << rx << ", " << ry << ")\n";
-            init(rx, ry); // Re-anchor centered on current position
-            std::fill(lo_.begin(), lo_.end(), 0); // Reset log-odds cleanly on re-center
+            init(rx, ry);
+            std::fill(lo_.begin(), lo_.end(), 0);
         }
     }
 
@@ -161,14 +175,16 @@ public:
     }
 
 private:
-    static constexpr int kOccThresh = 3;
+    static constexpr int kOccThresh = 12;
 
     bool inBounds(int x, int y) const { return x >= 0 && x < w_ && y >= 0 && y < h_; }
 
     void bump(int x, int y, int d) {
         int8_t& v = lo_[y * w_ + x];
+        if (v >= kOccThresh && d < 0) return;
+
         int nv = static_cast<int>(v) + d;
-        v = static_cast<int8_t>(std::clamp(nv, -10, 30));
+        v = static_cast<int8_t>(std::clamp(nv, -15, 35));
     }
 
     void traceFree(int x0, int y0, int x1, int y1) {
@@ -177,7 +193,11 @@ private:
         int err = dx - dy;
         int x = x0, y = y0;
         while (!(x == x1 && y == y1)) {
-            if (inBounds(x, y)) bump(x, y, -1);
+            if (inBounds(x, y)) {
+                if (lo_[y * w_ + x] < kOccThresh) {
+                    bump(x, y, -1);
+                }
+            }
             int e2 = 2 * err;
             if (e2 > -dy) { err -= dy; x += sx; }
             if (e2 < dx)  { err += dx; y += sy; }
@@ -192,13 +212,24 @@ private:
 };
 
 int main() {
+    // At the top of main()
+    std::set_terminate([] {
+        std::cerr << "[TERMINATE] Uncaught exception (likely in a background thread)\n" << std::flush;
+        std::cin.get();
+        std::abort();
+    });
+    std::signal(SIGSEGV, crash_handler);
+    std::signal(SIGABRT, crash_handler);
+    std::signal(SIGFPE, crash_handler);
+    
+    std::cout << "===========================================\n";
     std::cout << "===========================================\n";
     std::cout << "    Rover Navigation System (Robust Core)  \n";
     std::cout << "===========================================\n" << std::flush;
 
     RoverState state;
 
-    MotorInterface motor_driver(state, "COM4", 115200, "../sims/sim_esp.dat");
+    MotorInterface motor_driver(state, "COM4", 115200);
     motor_driver.start();
 
     DebugServer debug_server(state, 5000);
@@ -224,12 +255,11 @@ int main() {
     bool is_teleop_active = false;
     bool has_active_goal = false;
 
-    // Generous map size (600x600 cells at 0.10m = 60m x 60m)
     const int map_w = 600;
     const int map_h = 600;
     const double res = 0.10;
-    const double kInflateM = 0.45; 
-    const double kClearM   = 0.35; 
+    const double kInflateM = 0.32; 
+    const double kClearM   = 0.30; 
     OccupancyMap world_map(map_w, map_h, res);
 
     const double local_res = 0.05;
@@ -281,241 +311,242 @@ int main() {
     auto last_loop_time = std::chrono::steady_clock::now();
     auto last_log_time = std::chrono::steady_clock::now();
 
-    while (true) {
-        auto now = std::chrono::steady_clock::now();
-        double dt = std::chrono::duration_cast<std::chrono::microseconds>(now - last_loop_time).count() / 1000000.0;
-        last_loop_time = now;
-        if (dt > 0.1) dt = 0.05;
+    // Wrapped in a try-catch block to guarantee the application never crashes or closes unexpectedly
+    try {
+        while (true) {
+            auto now = std::chrono::steady_clock::now();
+            double dt = std::chrono::duration_cast<std::chrono::microseconds>(now - last_loop_time).count() / 1000000.0;
+            last_loop_time = now;
+            if (dt > 0.1) dt = 0.05;
 
-        // --- POLL INCOMING UDP MESSAGES ---
-        auto incoming = udp_bus.poll_messages();
-        for (const auto& msg : incoming) {
-            
-            // 1. Teleop command explicitly takes precedence and interrupts autonomous navigation
-            if (msg.find("\"action\":\"teleop\"") != std::string::npos || 
-                msg.find("\"action\":\"key\"") != std::string::npos) {
-                is_teleop_active = true;
-                has_active_goal = false;
-                global_path.clear();
-                follower.set_path({});
-                continue;
-            }
-
-            // 2. Goal cancellation request
-            if (msg.find("\"action\":\"cancel\"") != std::string::npos) {
-                std::cout << "[Bus] Goal cancelled by user.\n";
-                global_path.clear();
-                has_active_goal = false;
-                is_teleop_active = false;
-                follower.set_path({});
-                {
-                    std::lock_guard<std::mutex> lock(state.state_mutex);
-                    state.velocity = {0.0, 0.0};
-                    state.motor_command.linear = 0.0;
-                    state.motor_command.angular = 0.0;
-                    state.motor_command.enabled = false;
-                }
-                continue;
-            }
-
-            // 3. New Goal Request ("action":"go")
-            if (msg.find("\"action\":\"go\"") != std::string::npos || (msg.find("go") != std::string::npos && msg.find("x") != std::string::npos)) {
-                double gx = extract_json_val(msg, "x");
-                double gy = extract_json_val(msg, "y");
-
-                Pose current_pose;
-                {
-                    std::lock_guard<std::mutex> lock(state.state_mutex);
-                    current_pose = state.pose;
-                }
-
-                active_goal = Pose{gx, gy, 0.0};
-                std::cout << "[Planner] New goal received: (" << gx << ", " << gy << "). Planning from current pose (" << current_pose.x << ", " << current_pose.y << ")...\n";
-
-                is_teleop_active = false; // Teleop overridden by new goal click
-
-                if (!plan_and_publish(current_pose, active_goal, true)) {
+            // --- POLL INCOMING UDP MESSAGES ---
+            auto incoming = udp_bus.poll_messages();
+            for (const auto& msg : incoming) {
+                
+                if (msg.find("\"action\":\"teleop\"") != std::string::npos || 
+                    msg.find("\"action\":\"key\"") != std::string::npos) {
+                    is_teleop_active = true;
                     has_active_goal = false;
                     global_path.clear();
                     follower.set_path({});
                     continue;
                 }
 
-                has_active_goal = true;
-                last_replan_time = now;
-                continue;
-            }
-
-            // 4. Pose Telemetry
-            if (msg.find("\"x\"") != std::string::npos && msg.find("\"yaw\"") != std::string::npos && msg.find("\"action\"") == std::string::npos) {
-                double px = extract_json_val(msg, "x");
-                double py = extract_json_val(msg, "y");
-                double pyaw = extract_json_val(msg, "yaw");
-
-                {
-                    std::lock_guard<std::mutex> lock(state.state_mutex);
-                    state.pose.x = px;
-                    state.pose.y = py;
-                    state.pose.yaw = pyaw;
-                    state.gps.rtk_fixed = (msg.find("Fixed RTK") != std::string::npos);
+                if (msg.find("\"action\":\"cancel\"") != std::string::npos) {
+                    std::cout << "[Bus] Goal cancelled by user.\n";
+                    global_path.clear();
+                    has_active_goal = false;
+                    is_teleop_active = false;
+                    follower.set_path({});
+                    {
+                        std::lock_guard<std::mutex> lock(state.state_mutex);
+                        state.velocity = {0.0, 0.0};
+                        state.motor_command.linear = 0.0;
+                        state.motor_command.angular = 0.0;
+                        state.motor_command.enabled = false;
+                    }
+                    continue;
                 }
 
-                pose_estimator.set_pose(px, py, pyaw);
-                update_rover_pos_file("rtk/rover_pos.dat", {px, py, pyaw});
-            }
+                if (msg.find("\"action\":\"go\"") != std::string::npos || (msg.find("go") != std::string::npos && msg.find("x") != std::string::npos)) {
+                    double gx = extract_json_val(msg, "x");
+                    double gy = extract_json_val(msg, "y");
 
-            // 5. LiDAR Scan Data processing (Port 5005)
-            if (msg.find("lidar") != std::string::npos && msg.find("points") != std::string::npos) {
-                size_t p_pos = msg.find("\"points\"");
-                if (p_pos != std::string::npos) {
-                    size_t bracket_pos = msg.find('[', p_pos);
-                    if (bracket_pos != std::string::npos) {
-                        Pose current_pose_local;
-                        {
-                            std::lock_guard<std::mutex> lock(state.state_mutex);
-                            current_pose_local = state.pose;
-                        }
+                    Pose current_pose;
+                    {
+                        std::lock_guard<std::mutex> lock(state.state_mutex);
+                        current_pose = state.pose;
+                    }
 
-                        if (!world_map.initialised()) world_map.init(current_pose_local.x, current_pose_local.y);
+                    active_goal = Pose{gx, gy, 0.0};
+                    std::cout << "[Planner] New goal received: (" << gx << ", " << gy << "). Planning from current pose (" << current_pose.x << ", " << current_pose.y << ")...\n";
 
-                        std::vector<std::pair<double, double>> local_lidar_scans;
-                        size_t curr = bracket_pos;
-                        while (true) {
-                            size_t pair_start = msg.find('[', curr);
-                            if (pair_start == std::string::npos) break;
-                            size_t pair_end = msg.find(']', pair_start);
-                            if (pair_end == std::string::npos) break;
+                    is_teleop_active = false;
 
-                            std::string pair_str = msg.substr(pair_start + 1, pair_end - pair_start - 1);
-                            size_t comma = pair_str.find(',');
-                            if (comma != std::string::npos) {
-                                try {
-                                    double angle_deg = std::stod(pair_str.substr(0, comma));
-                                    double dist_mm = std::stod(pair_str.substr(comma + 1));
-                                    double dist_m = dist_mm / 1000.0;
+                    if (!plan_and_publish(current_pose, active_goal, true)) {
+                        has_active_goal = false;
+                        global_path.clear();
+                        follower.set_path({});
+                        continue;
+                    }
 
-                                    if (dist_m > 0.1 && dist_m <= 12.0) {
-                                        double body_angle = -angle_deg * M_PI / 180.0;
-                                        local_lidar_scans.push_back({dist_m, body_angle});
-                                    }
-                                } catch (...) {}
+                    has_active_goal = true;
+                    last_replan_time = now;
+                    continue;
+                }
+
+                if (msg.find("\"x\"") != std::string::npos && msg.find("\"yaw\"") != std::string::npos && msg.find("\"action\"") == std::string::npos) {
+                    double px = extract_json_val(msg, "x");
+                    double py = extract_json_val(msg, "y");
+                    double pyaw = extract_json_val(msg, "yaw");
+
+                    {
+                        std::lock_guard<std::mutex> lock(state.state_mutex);
+                        state.pose.x = px;
+                        state.pose.y = py;
+                        state.pose.yaw = pyaw;
+                        state.gps.rtk_fixed = (msg.find("Fixed RTK") != std::string::npos);
+                    }
+
+                    pose_estimator.set_pose(px, py, pyaw);
+                    update_rover_pos_file("rtk/rover_pos.dat", {px, py, pyaw});
+                }
+
+                if (msg.find("lidar") != std::string::npos && msg.find("points") != std::string::npos) {
+                    size_t p_pos = msg.find("\"points\"");
+                    if (p_pos != std::string::npos) {
+                        size_t bracket_pos = msg.find('[', p_pos);
+                        if (bracket_pos != std::string::npos) {
+                            Pose current_pose_local;
+                            {
+                                std::lock_guard<std::mutex> lock(state.state_mutex);
+                                current_pose_local = state.pose;
                             }
-                            curr = pair_end + 1;
-                        }
 
-                        // Integrate LiDAR into occupancy grid for obstacle avoidance
-                        world_map.integrate(current_pose_local.x, current_pose_local.y,
-                                            current_pose_local.yaw, local_lidar_scans);
+                            if (!world_map.initialised()) world_map.init(current_pose_local.x, current_pose_local.y);
 
-                        local_costmap.update(local_lidar_scans, current_pose_local.x, current_pose_local.y, current_pose_local.yaw);
+                            std::vector<std::pair<double, double>> local_lidar_scans;
+                            size_t curr = bracket_pos;
+                            while (true) {
+                                size_t pair_start = msg.find('[', curr);
+                                if (pair_start == std::string::npos) break;
+                                size_t pair_end = msg.find(']', pair_start);
+                                if (pair_end == std::string::npos) break;
 
-                        // Check forward clearance directly from LiDAR
-                        const auto& lgrid = local_costmap.getGrid();
-                        const int cw = local_costmap.getWidth();
-                        const int ch = local_costmap.getHeight();
-                        const double hx = std::cos(current_pose_local.yaw);
-                        const double hy = std::sin(current_pose_local.yaw);
+                                std::string pair_str = msg.substr(pair_start + 1, pair_end - pair_start - 1);
+                                size_t comma = pair_str.find(',');
+                                if (comma != std::string::npos) {
+                                    try {
+                                        double angle_deg = std::stod(pair_str.substr(0, comma));
+                                        double dist_mm = std::stod(pair_str.substr(comma + 1));
+                                        double dist_m = dist_mm / 1000.0;
 
-                        forward_clearance = 99.0;
-                        for (double d = 0.15; d <= 1.5 && forward_clearance > 98.0; d += local_res) {
-                            for (double lat : {-0.2, 0.0, 0.2}) {
-                                double ddx = d * hx - lat * hy;
-                                double ddy = d * hy + lat * hx;
-                                int cx = static_cast<int>(std::floor(ddx / local_res)) + cw / 2;
-                                int cy = static_cast<int>(std::floor(ddy / local_res)) + ch / 2;
-                                if (cx < 0 || cx >= cw || cy < 0 || cy >= ch) continue;
-                                if (lgrid[cy * cw + cx].cost >= 100) {
-                                    forward_clearance = d;
-                                    break;
+                                        if (dist_m > 0.1 && dist_m <= 12.0) {
+                                            double body_angle = -angle_deg * M_PI / 180.0;
+                                            local_lidar_scans.push_back({dist_m, body_angle});
+                                        }
+                                    } catch (...) {}
+                                }
+                                curr = pair_end + 1;
+                            }
+
+                            world_map.integrate(current_pose_local.x, current_pose_local.y,
+                                                current_pose_local.yaw, local_lidar_scans);
+
+                            local_costmap.update(local_lidar_scans, current_pose_local.x, current_pose_local.y, current_pose_local.yaw);
+
+                            const auto& lgrid = local_costmap.getGrid();
+                            const int cw = local_costmap.getWidth();
+                            const int ch = local_costmap.getHeight();
+                            const double hx = std::cos(current_pose_local.yaw);
+                            const double hy = std::sin(current_pose_local.yaw);
+
+                            forward_clearance = 99.0;
+                            for (double d = 0.15; d <= 1.5 && forward_clearance > 98.0; d += local_res) {
+                                for (double lat : {-0.2, 0.0, 0.2}) {
+                                    double ddx = d * hx - lat * hy;
+                                    double ddy = d * hy + lat * hx;
+                                    int cx = static_cast<int>(std::floor(ddx / local_res)) + cw / 2;
+                                    int cy = static_cast<int>(std::floor(ddy / local_res)) + ch / 2;
+                                    if (cx < 0 || cx >= cw || cy < 0 || cy >= ch) continue;
+                                    if (lgrid[cy * cw + cx].cost >= 100) {
+                                        forward_clearance = d;
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // --- 20 Hz CONTROL LOOP ---
-        if (dt > 0.0) {
-            Pose current_pose;
-            {
-                std::lock_guard<std::mutex> lock(state.state_mutex);
-                current_pose = state.pose;
-            }
-
-            if (is_teleop_active) {
-                // Manual teleop active: controller loop lets manual bus commands pass through
-            } else if (has_active_goal) {
-                // Replan periodically to account for newly discovered LiDAR obstacles
-                if (std::chrono::duration<double>(now - last_replan_time).count() >= 0.5) {
-                    last_replan_time = now;
-                    if (!plan_and_publish(current_pose, active_goal, false)) {
-                        std::cerr << "[Planner] Replan temporarily blocked. Retrying next cycle...\n";
-                    }
-                }
-
-                auto [cmd, done] = follower.update(current_pose.x, current_pose.y, current_pose.yaw);
-
-                if (done) {
-                    std::cout << "[Planner] Destination successfully reached!\n";
-                    has_active_goal = false;
-                    is_teleop_active = false;
-                    global_path.clear();
-                    follower.set_path({});
-                    cmd.linear = 0.0;
-                    cmd.angular = 0.0;
-                }
-
+            // --- 20 Hz CONTROL LOOP ---
+            if (dt > 0.0) {
+                Pose current_pose;
                 {
                     std::lock_guard<std::mutex> lock(state.state_mutex);
-                    if (!done && cmd.linear > 0.0) {
-                        double scale = 1.0;
-                        if (forward_clearance < 0.35)      scale = 0.0;
-                        else if (forward_clearance < 1.0)  scale = (forward_clearance - 0.35) / 0.65;
-                        cmd.linear *= scale;
-                    }
-                    state.velocity = cmd;
-                    state.motor_command.linear = cmd.linear;
-                    state.motor_command.angular = cmd.angular;
-                    state.motor_command.enabled = true;
+                    current_pose = state.pose;
                 }
 
-                std::ostringstream cmd_json;
-                cmd_json << "{\"type\":\"cmd_vel\",\"v\":1,\"ts\":" << get_timestamp() 
-                         << ",\"linear\":" << cmd.linear 
-                         << ",\"angular\":" << cmd.angular << "}";
-                udp_bus.send(5006, cmd_json.str());
-            } else {
-                // Idle state: safely disengage motors without shutting down app
-                std::lock_guard<std::mutex> lock(state.state_mutex);
-                state.velocity = {0.0, 0.0};
-                state.motor_command.linear = 0.0;
-                state.motor_command.angular = 0.0;
-                state.motor_command.enabled = false;
+                if (is_teleop_active) {
+                    // Manual teleop active
+                } else if (has_active_goal) {
+                    if (std::chrono::duration<double>(now - last_replan_time).count() >= 0.5) {
+                        last_replan_time = now;
+                        if (!plan_and_publish(current_pose, active_goal, false)) {
+                            std::cerr << "[Planner] Replan temporarily blocked. Retrying next cycle...\n";
+                        }
+                    }
+
+                    auto [cmd, done] = follower.update(current_pose.x, current_pose.y, current_pose.yaw);
+
+                    if (done) {
+                        std::cout << "[Planner] Destination successfully reached! Holding position.\n";
+                        has_active_goal = false;
+                        is_teleop_active = false;
+                        global_path.clear();
+                        follower.set_path({});
+                        cmd.linear = 0.0;
+                        cmd.angular = 0.0;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(state.state_mutex);
+                        if (!done && cmd.linear > 0.0) {
+                            double scale = 1.0;
+                            if (forward_clearance < 0.35)    scale = 0.0;
+                            else if (forward_clearance < 1.0)  scale = (forward_clearance - 0.35) / 0.65;
+                            cmd.linear *= scale;
+                        }
+                        state.velocity = cmd;
+                        state.motor_command.linear = cmd.linear;
+                        state.motor_command.angular = cmd.angular;
+                        state.motor_command.enabled = true;
+                    }
+
+                    std::ostringstream cmd_json;
+                    cmd_json << "{\"type\":\"cmd_vel\",\"v\":1,\"ts\":" << get_timestamp() 
+                             << ",\"linear\":" << cmd.linear 
+                             << ",\"angular\":" << cmd.angular << "}";
+                    udp_bus.send(5006, cmd_json.str());
+                } else {
+                    // Idle state: keep running safely without closing app
+                    std::lock_guard<std::mutex> lock(state.state_mutex);
+                    state.velocity = {0.0, 0.0};
+                    state.motor_command.linear = 0.0;
+                    state.motor_command.angular = 0.0;
+                    state.motor_command.enabled = false;
+                }
             }
-        }
 
-        // --- TELEMETRY CONSOLE OUTPUT (Every 1 Second) ---
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_log_time).count() >= 1000) {
-            Pose p;
-            Velocity v;
-            {
-                std::lock_guard<std::mutex> lock(state.state_mutex);
-                p = state.pose;
-                v = state.velocity;
+            // --- TELEMETRY CONSOLE OUTPUT (Every 1 Second) ---
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_log_time).count() >= 1000) {
+                Pose p;
+                Velocity v;
+                {
+                    std::lock_guard<std::mutex> lock(state.state_mutex);
+                    p = state.pose;
+                    v = state.velocity;
+                }
+
+                std::cout << "[NAV] Pose: (" << std::fixed << std::setprecision(2) << p.x << ", " << p.y << ") m "
+                          << "| Yaw: " << std::setprecision(2) << p.yaw << " rad "
+                          << "| Mode: " << (is_teleop_active ? "TELEOP" : (has_active_goal ? "NAVIGATING" : "IDLE"))
+                          << std::endl;
+
+                last_log_time = now;
             }
 
-            std::cout << "[NAV] Pose: (" << std::fixed << std::setprecision(2) << p.x << ", " << p.y << ") m "
-                      << "| Yaw: " << std::setprecision(2) << p.yaw << " rad "
-                      << "| Mode: " << (is_teleop_active ? "TELEOP" : (has_active_goal ? "NAVIGATING" : "IDLE"))
-                      << std::endl;
-
-            last_log_time = now;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    } catch (const std::exception& e) {
+        std::cerr << "[CRITICAL ERROR] Exception caught in main loop: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "[CRITICAL ERROR] Unknown exception caught in main loop!\n";
     }
 
+    std::cerr << "[Main] Main loop exited, shutting down. Press ENTER...\n" << std::flush;
+    std::cin.get();
     motor_driver.stop();
     debug_server.stop();
     return 0;

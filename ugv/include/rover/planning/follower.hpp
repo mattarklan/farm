@@ -110,12 +110,13 @@ private:
                 double f = (seg_len > 0.0) ? (remaining / seg_len) : 0.0;
                 return {px + f * (bx - px), py + f * (by - py)};
             }
-            remaining -= seg_len;
-            seg_++;
-            if (seg_ >= path_.size() - 1) {
-                return {path_.back().x, path_.back().y};
-            }
-            px = path_[seg_].x;
+remaining -= seg_len;
+seg_++;
+if (seg_ >= path_.size() - 1) {
+    seg_ = path_.size() - 2;   // <-- add this line
+    return {path_.back().x, path_.back().y};
+}
+px = path_[seg_].x;
             py = path_[seg_].y;
             bx = path_[seg_+1].x;
             by = path_[seg_+1].y;
