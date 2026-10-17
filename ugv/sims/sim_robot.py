@@ -118,9 +118,9 @@ def main():
     ap.add_argument("--invert", action="store_true", help="world image is black = free, white = wall")
     ap.add_argument("--lidar-pose-port", type=int, default=5000, help="UDP port of sim_lidar's ground-truth pose input (0 = off)")
     ap.add_argument("--lidar-pose-hz", type=float, default=20.0)
-    ap.add_argument("--odom-error", type=float, default=0.02,
+    ap.add_argument("--odom-error", type=float, default=0.0,
                     help="right wheel reads this fraction too far (0.02 = 2%%), so wheel odometry drifts like a real one (default 0.02; 0 = perfect)")
-    ap.add_argument("--yaw-drift", type=float, default=2.0, help="IMU heading drifts this many degrees per minute (default 2; 0 = perfect)")
+    ap.add_argument("--yaw-drift", type=float, default=0.0, help="IMU heading drifts this many degrees per minute (default 2; 0 = perfect)")
     ap.add_argument("--quiet", action="store_true", help="no periodic status line")
     args = ap.parse_args()
 
@@ -240,7 +240,7 @@ def main():
                                   "left_vel": (v - w * args.wheel_base / 2) * tpm,
                                   "right_vel": (v + w * args.wheel_base / 2) * tpm},
                              imu={"gyro": [random.gauss(0, 0.002), random.gauss(0, 0.002), w + random.gauss(0, 0.003)],
-                                  "accel": [lin_acc + random.gauss(0, 0.03), v * w + random.gauss(0, 0.02), G + random.gauss(0, 0.03)],
+                                  "accel": [lin_acc + random.gauss(0, 0.03), v * w + random.gauss(0, 0.00), G + random.gauss(0, 0.03)],
                                   "quat": [math.cos(yaw_imu / 2), 0.0, 0.0, math.sin(yaw_imu / 2)]})
                 except ProtocolError as e:
                     print(f"[SIM] esp message rejected: {e}", flush=True)

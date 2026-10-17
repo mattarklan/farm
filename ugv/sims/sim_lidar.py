@@ -35,7 +35,7 @@ class LidarPublisher:
         pose_listen_port=5000,  # Optional: receive live pose updates over UDP in SIM mode
         mm_per_pixel=50.0,
         scan_rate_hz=10.0,
-        samples_per_scan=360,
+        samples_per_scan=600,
         noise_std_mm=10.0,
         invert_map=False,  # ADDED
     ):
