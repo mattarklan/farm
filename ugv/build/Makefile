@@ -200,6 +200,30 @@ src/gps/gps_driver.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.s
 .PHONY : src/gps/gps_driver.cpp.s
 
+src/localization/lidara2.obj: src/localization/lidara2.cpp.obj
+.PHONY : src/localization/lidara2.obj
+
+# target to build an object file
+src/localization/lidara2.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/localization/lidara2.cpp.obj
+.PHONY : src/localization/lidara2.cpp.obj
+
+src/localization/lidara2.i: src/localization/lidara2.cpp.i
+.PHONY : src/localization/lidara2.i
+
+# target to preprocess a source file
+src/localization/lidara2.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/localization/lidara2.cpp.i
+.PHONY : src/localization/lidara2.cpp.i
+
+src/localization/lidara2.s: src/localization/lidara2.cpp.s
+.PHONY : src/localization/lidara2.s
+
+# target to generate assembly for a file
+src/localization/lidara2.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\rover_app.dir\build.make CMakeFiles/rover_app.dir/src/localization/lidara2.cpp.s
+.PHONY : src/localization/lidara2.cpp.s
+
 src/localization/pose_estimator.obj: src/localization/pose_estimator.cpp.obj
 .PHONY : src/localization/pose_estimator.obj
 
@@ -362,6 +386,9 @@ help:
 	@echo ... src/gps/gps_driver.obj
 	@echo ... src/gps/gps_driver.i
 	@echo ... src/gps/gps_driver.s
+	@echo ... src/localization/lidara2.obj
+	@echo ... src/localization/lidara2.i
+	@echo ... src/localization/lidara2.s
 	@echo ... src/localization/pose_estimator.obj
 	@echo ... src/localization/pose_estimator.i
 	@echo ... src/localization/pose_estimator.s

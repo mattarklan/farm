@@ -16,6 +16,7 @@ src/planning/lcostmap.cpp
     src/planning/theta_star.cpp
     src/localization/pose_estimator.cpp
     src/comms/udp_bus.cpp
+src/localization/lidara2.cpp
 )
 
 if(WIN32)

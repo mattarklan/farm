@@ -5,6 +5,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/rover_app.dir/src/debug/debug_server.cpp.obj.d"
   "CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.obj"
   "CMakeFiles/rover_app.dir/src/gps/gps_driver.cpp.obj.d"
+  "CMakeFiles/rover_app.dir/src/localization/lidara2.cpp.obj"
+  "CMakeFiles/rover_app.dir/src/localization/lidara2.cpp.obj.d"
   "CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj"
   "CMakeFiles/rover_app.dir/src/localization/pose_estimator.cpp.obj.d"
   "CMakeFiles/rover_app.dir/src/main.cpp.obj"

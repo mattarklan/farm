@@ -36,7 +36,7 @@ public:
 
         auto [tx, ty] = get_target(x, y);
         double alpha = wrap(std::atan2(ty - y, tx - x) - yaw);
-        
+
         const double abs_alpha = std::abs(alpha);
 
         // Forward speed: full speed when pointing at the target, falling off as the target
@@ -65,8 +65,7 @@ public:
     }
 
 private:
-    // Wrap to [-pi, pi). The old std::fmod version returned values in (-2pi, -pi) for
-    // negative inputs, which made the rover turn the long way round (or stall) for goals behind it.
+    // Wrap to [-pi, pi).
     double wrap(double a) const {
         return a - 2.0 * M_PI * std::floor((a + M_PI) / (2.0 * M_PI));
     }
@@ -76,11 +75,14 @@ private:
             return {path_.back().x, path_.back().y};
         }
 
+        const size_t last_seg = path_.size() - 2;      // largest valid segment index
+        if (seg_ > last_seg) seg_ = last_seg;          // never let seg_ point past the last segment
+
         double best_d = 1e9;
         size_t best_i = seg_;
         double best_t = 0.0;
 
-        for (size_t i = seg_; i < path_.size() - 1; ++i) {
+        for (size_t i = seg_; i <= last_seg; ++i) {
             double ax = path_[i].x, ay = path_[i].y;
             double bx = path_[i+1].x, by = path_[i+1].y;
             double dx = bx - ax, dy = by - ay;
@@ -98,8 +100,12 @@ private:
         }
 
         seg_ = best_i;
-        double ax = path_[seg_].x, ay = path_[seg_].y;
-        double bx = path_[seg_+1].x, by = path_[seg_+1].y;
+
+        // Walk the lookahead distance along the path from the closest point, using a LOCAL index so
+        // seg_ (the persistent "where am I on the path" marker) always stays on a real segment.
+        size_t k = seg_;
+        double ax = path_[k].x, ay = path_[k].y;
+        double bx = path_[k+1].x, by = path_[k+1].y;
         double px = ax + best_t * (bx - ax);
         double py = ay + best_t * (by - ay);
 
@@ -110,16 +116,15 @@ private:
                 double f = (seg_len > 0.0) ? (remaining / seg_len) : 0.0;
                 return {px + f * (bx - px), py + f * (by - py)};
             }
-remaining -= seg_len;
-seg_++;
-if (seg_ >= path_.size() - 1) {
-    seg_ = path_.size() - 2;   // <-- add this line
-    return {path_.back().x, path_.back().y};
-}
-px = path_[seg_].x;
-            py = path_[seg_].y;
-            bx = path_[seg_+1].x;
-            by = path_[seg_+1].y;
+            remaining -= seg_len;
+            ++k;
+            if (k > last_seg) {
+                return {path_.back().x, path_.back().y};
+            }
+            px = path_[k].x;
+            py = path_[k].y;
+            bx = path_[k+1].x;
+            by = path_[k+1].y;
         }
     }
 

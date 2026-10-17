@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <queue>
+#include <vector>
 
 namespace rover::planning {
 
@@ -85,9 +87,9 @@ bool ThetaStarPlanner::line_of_sight(const GridNode* s, const GridNode* s_prime,
     return true;
 }
 
-std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose, 
-                                            const Pose& goal_pose, 
-                                            const std::vector<uint8_t>& grid) 
+std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
+                                              const Pose& goal_pose,
+                                              const std::vector<uint8_t>& grid)
 {
     std::vector<Pose> path;
 
@@ -130,11 +132,21 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
         return nodes[k];
     };
 
-    std::priority_queue<GridNode*, std::vector<GridNode*>, CompareNode> open_set;
+    // The open list stores a SNAPSHOT of f = g + h taken when the node is pushed.
+    // The old queue compared nodes by their live g_cost, which Theta* changes while the node is
+    // still inside the heap. That silently breaks the heap ordering and produces odd, longer paths.
+    struct Entry {
+        double f;
+        GridNode* node;
+    };
+    struct EntryCmp {
+        bool operator()(const Entry& a, const Entry& b) const { return a.f > b.f; }   // min-heap on f
+    };
+    std::priority_queue<Entry, std::vector<Entry>, EntryCmp> open_set;
 
     GridNode* start_node = get_node(start_gx, start_gy);
     start_node->g_cost = 0.0;
-    open_set.push(start_node);
+    open_set.push({start_node->g_cost + start_node->h_cost, start_node});
 
     static const int neighbors[8][2] = {
         {1,0}, {-1,0}, {0,1}, {0,-1},
@@ -143,18 +155,21 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
 
     GridNode* goal_found = nullptr;
     int expansions = 0;
-    const int max_expansions = 40000; // Safety guard: aborts instantly instead of freezing for a minute
+    // Enough to search most of the 600x600 map. A big detour around a real wall needs far more
+    // than the old 40,000, which is why open-looking routes sometimes came back as "no path".
+    const int max_expansions = 250000;
 
     while (!open_set.empty()) {
         if (++expansions > max_expansions) {
-            std::cerr << "[Theta* ERROR] Path search aborted: exceeded max expansions (phantom blockage or unreachable goal).\n";
+            std::cerr << "[Theta* ERROR] Path search aborted: exceeded max expansions (unreachable goal?).\n";
             return path;
         }
 
-        GridNode* current = open_set.top();
+        const Entry top = open_set.top();
         open_set.pop();
+        GridNode* current = top.node;
 
-        int current_key = current->y * width_ + current->x;
+        const int current_key = current->y * width_ + current->x;
         if (closed[current_key]) continue;
         closed[current_key] = 1;
 
@@ -184,14 +199,14 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
                 if (new_g < neighbor->g_cost) {
                     neighbor->g_cost = new_g;
                     neighbor->parent = current->parent;
-                    open_set.push(neighbor);
+                    open_set.push({new_g + neighbor->h_cost, neighbor});
                 }
             } else {
                 double new_g = current->g_cost + EuclideanDistance(current, neighbor);
                 if (new_g < neighbor->g_cost) {
                     neighbor->g_cost = new_g;
                     neighbor->parent = current;
-                    open_set.push(neighbor);
+                    open_set.push({new_g + neighbor->h_cost, neighbor});
                 }
             }
         }
