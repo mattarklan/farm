@@ -205,17 +205,25 @@ _register(Message(
 
 _register(Message(
     "goal", PORT_NAV,
-    producer="the visualiser (click on the map = go, right-click / teleop = cancel), or any program",
+    producer="the visualiser (click on the map = go, space then clicks = route, right-click / teleop = cancel), or any program",
     consumers="your path planner / navigation program (the visualiser's built-in planner when run with --builtin-nav)",
-    rate="once per click",
-    doc="Where the user wants the robot to drive to, or a request to stop going there.",
+    rate="once per click, or once per route",
+    doc="Where the user wants the robot to drive to, a list of places to visit in order, or a request to stop going there.",
     fields=[
-        Field("action", "str", "", '"go" = drive to x, y; "cancel" = abandon the current goal', choices=("go", "cancel")),
-        Field("x", "float", "m", "east of the map origin (ignored for cancel)", optional=True),
-        Field("y", "float", "m", "north of the map origin (ignored for cancel)", optional=True),
+        Field("action", "str", "", '"go" = drive to x, y; "route" = visit every waypoint in `route`, in order; '
+              '"cancel" = abandon the current goal', choices=("go", "route", "cancel")),
+        Field("x", "float", "m", "east of the map origin (ignored for route and cancel)", optional=True),
+        Field("y", "float", "m", "north of the map origin (ignored for route and cancel)", optional=True),
+        Field("route", "xys", "m", "waypoints [[x, y], ...] to visit in order; the last one is the final goal (action route)",
+              optional=True),
+        Field("inflate", "float", "m", "how far from a wall the robot's CENTRE must stay while driving to this goal. "
+              "Omit to use the planner's default", 0.0, 1.5, optional=True),
     ],
     example={"type": "goal", "v": 1, "ts": 1760000000.5, "action": "go", "x": 5.0, "y": 0.0},
-    notes=["On action 'go', x and y are required.",
+    notes=["On action 'go', x and y are required. On action 'route', `route` must hold at least one waypoint.",
+           "A route replaces any goal or route the planner is already driving.",
+           "`inflate` is how the visualiser's fuchsia 'where can I go' overlay and the planner agree: the overlay shows "
+           "exactly the cells at least this far from a wall.",
            "The visualiser sends 'cancel' when you take over with the arrow keys, so a planner knows to stop sending cmd_vel."]))
 
 _register(Message(
@@ -338,6 +346,8 @@ def validate(msg):
         _set(msg, f.name, _coerce(f, value))
     if mtype == "goal" and msg["action"] == "go" and ("x" not in msg or "y" not in msg):
         raise ProtocolError("goal: action 'go' needs x and y")
+    if mtype == "goal" and msg["action"] == "route" and not msg.get("route"):
+        raise ProtocolError("goal: action 'route' needs a non-empty route")
     return msg
 
 

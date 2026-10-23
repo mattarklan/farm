@@ -17,10 +17,15 @@ What you see
   SCAN    red dots: the latest lidar scan, drawn around the robot.
 
 Driving
-  arrow keys     teleop (up/down = forward/back, left/right = turn), space = stop
+  arrow keys     teleop (up/down = forward/back, left/right = turn)
   left click     on the map: plan a path to that point on the learned map and drive it (replans as the map
                  fills in; unknown space counts as free, so it explores towards the goal)
-  right click    or  x  : cancel.   Any arrow key also takes over from the navigator.
+  right click    or  x / esc : stop and cancel.   Any arrow key also takes over from the navigator.
+  space          PLAN A ROUTE. The map lights up FUCHSIA wherever the robot's centre can go without coming
+                 within --inflate of a wall (seen-free space only). Left-click inside the fuchsia to queue
+                 numbered waypoints, right-click undoes the last one, space again sends the whole route.
+  [  and  ]      change the keep-out distance by one planning cell (0.1 m). The fuchsia updates live and the
+                 new value is sent with every goal, so you can watch a narrow gap open up before you drive.
   Needs an RTK fix of at least --min-fix (default Float RTK) for mapping and click-to-drive.
 
 Your own Theta*:   python visualiser.py --planner my_theta:plan      (see common/planner.py for the signature)
@@ -70,7 +75,7 @@ except ImportError as e:
 from common import config as cfg                               # noqa: E402
 from common.protocol import Publisher, Subscriber, FIX_RANK    # noqa: E402
 from common.estimator import PoseEstimator                        # noqa: E402
-from common.mapping import OccupancyGrid                          # noqa: E402
+from common.mapping import OccupancyGrid, FREE_T                  # noqa: E402
 from common.localiser import Localiser                            # noqa: E402
 from common.navigator import Navigator                            # noqa: E402
 from common.planner import load_planner                           # noqa: E402
@@ -86,6 +91,7 @@ FIX_COLORS = {"Fixed RTK": "#2ecc71", "Float RTK": "#f1c40f", "DGNSS": "#3498db"
               "No Fix": "#e74c3c", "Unknown": "#95a5a6"}
 WHITE, GREY, RED, GREEN, AMBER, HDR = "#e8e8e8", "#8a8a8a", "#ff5555", "#2ecc71", "#f1c40f", "#58a6ff"
 GOAL_FC, GHOST_RGB = (0.29, 0.64, 1.0, 0.85), (1.0, 0.70, 0.28)
+FUCHSIA, FUCHSIA_RGBA = "#ff00cc", (1.0, 0.0, 0.8, 0.62)     # the "where can I go" overlay and queued waypoints
 
 
 def wrap(a):
@@ -107,10 +113,35 @@ def find_cmap(args):
     return next((p for p in CMAP_SEARCH if os.path.exists(p)), None)
 
 
+def drivable_area(grid, inflate_m, plan_res=0.10):
+    """Where the robot's CENTRE can go: cells the lidar has seen to be free that are farther than the keep-out
+    distance from every wall. This is the rule the rover's planner uses. Its planning cells (plan_res) make the
+    keep-out distance a whole number of cells, so the distance is rounded to that cell size here too; that is why
+    a gap has to be a little wider than 2 x keep-out before the planner will use it.
+    Returns a boolean array shaped like grid.grid."""
+    walls = grid.blocked()
+    free = grid.grid < FREE_T
+    keep = math.floor(inflate_m / plan_res + 0.5) * plan_res if plan_res > 0 else inflate_m   # round half UP, like the rover's std::round
+    reach = keep / grid.res                                  # keep-out distance in map cells
+    r = int(math.floor(reach + 1e-9))
+    if r <= 0 or not walls.any():
+        return free
+    h, w = walls.shape
+    pad = np.pad(walls, r)
+    near = np.zeros_like(walls)
+    lim = reach * reach + 1e-9
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy <= lim:
+                near |= pad[r + dy:r + dy + h, r + dx:r + dx + w]
+    return free & ~near
+
+
 class SidePanel:
     """Telemetry text in its own scrollable window (so redrawing it never costs the map any time)."""
 
-    KEYS = {"Up": "up", "Down": "down", "Left": "left", "Right": "right", "space": " ", "x": "x"}
+    KEYS = {"Up": "up", "Down": "down", "Left": "left", "Right": "right", "space": " ", "x": "x",
+            "Escape": "escape", "bracketleft": "[", "bracketright": "]"}
 
     def __init__(self, root, on_press, on_release):
         import tkinter as tk
@@ -209,6 +240,17 @@ class Visualiser:
         self.last_panel = 0.0
         self.msg, self.msg_until = "", 0.0
 
+        # route planning (space bar)
+        self.inflate = clamp(args.inflate, 0.0, 1.5)   # keep-out distance (m): drawn in fuchsia, sent with every goal
+        self.plan_mode = False                         # space pressed: map shows where the robot can go, clicks queue waypoints
+        self.queue = []                                # waypoints queued in plan mode [(x, y), ...]
+        self.route_shown = []                          # waypoints sent to the rover and not reached yet
+        self.route_done = 0                            # how many of that route's waypoints are behind us (for the numbering)
+        self.route_todo = []                           # built-in planner only: legs still to drive after the current one
+        self.chain_after = 0.0                         # built-in planner only: do not start the next leg before this time
+        self.drive_key, self.drive_mask, self.drive_drawn = None, None, None
+        self._q_sig, self.q_texts = None, []
+
         # telemetry state
         self.rv = self.es = None
         self.gpos, self.g_ts, self.gfix = None, None, "No Fix"
@@ -276,6 +318,9 @@ class Visualiser:
         ax = self.ax
         self.map_im = ax.imshow(self.grid.image(), extent=self.extent, origin="upper", cmap="gray",
                                 vmin=0, vmax=1, interpolation="nearest", zorder=0)
+        self.drive_im = ax.imshow(np.zeros(self.grid.grid.shape + (4,), np.float32), extent=self.extent, origin="upper",
+                                  interpolation="nearest", zorder=1)          # fuchsia: where the robot can go (space bar)
+        self.drive_im.set_visible(False)
         l, r, b, t = self.extent
         ax.plot([l, r, r, l, l], [b, b, t, t, b], color="#555", lw=1, zorder=1)
         if self.a.show_world and self.world is not None:     # ground truth, for checking the learned map
@@ -313,16 +358,19 @@ class Visualiser:
         self.nav_text = ax.text(0.01, 0.012, "", transform=ax.transAxes, fontsize=9, color="#00e5ff", va="bottom",
                                 family="monospace", bbox=dict(fc="black", ec="none", alpha=0.6, pad=3),
                                 zorder=9, animated=True)
-        self.slow_artists = [self.map_im, self.g_line, self.o_line, self.g_dot, self.o_dot]
+        self.q_line, = ax.plot([], [], "-", color=FUCHSIA, lw=1.6, alpha=0.9, zorder=7, animated=True)
+        self.q_dots, = ax.plot([], [], "o", ms=13, mfc=FUCHSIA, mec="w", mew=1.2, zorder=8, animated=True)
+        self.slow_artists = [self.map_im, self.drive_im, self.g_line, self.o_line, self.g_dot, self.o_dot]
         for a in self.slow_artists:                          # drawn at ~1 Hz into a cached layer, not on every frame
             a.set_animated(True)
         self.fast_artists = (self.goal_line, self.path_line, self.lidar_sc, self.ghost_body, self.ghost_head,
-                             self.goal_body, self.goal_head, self.goal_mark, self.nav_text)
+                             self.goal_body, self.goal_head, self.goal_mark, self.q_line, self.q_dots, self.nav_text)
 
         # colour key (a real matplotlib legend is slow to draw and clipped at this size)
         for i, (txt, col) in enumerate((("blue = predicted pose (smooth)", "#4aa3ff"), ("dashed = robot (odometry + lidar)", "#ffb347"),
                                         ("green = GNSS trail", "#2ecc71"), ("magenta = odometry", "#e056fd"),
-                                        ("cyan = planned path", "#00e5ff"), ("red dots = lidar", "#ff4d4d"))):
+                                        ("cyan = planned path", "#00e5ff"), ("red dots = lidar", "#ff4d4d"),
+                                        ("fuchsia = drivable (press space)", FUCHSIA))):
             ax.text(0.99, 0.985 - i * 0.03, txt, transform=ax.transAxes, ha="right", va="top", fontsize=7, color=col,
                     bbox=dict(fc="black", ec="none", alpha=0.5, pad=1))
         ax.set_xlim(-6, 6)
@@ -381,6 +429,8 @@ class Visualiser:
     def _draw_fast(self):
         for a in self.fast_artists:
             self.ax.draw_artist(a)
+        for t in self.q_texts:
+            self.ax.draw_artist(t)
 
     def _blit(self):
         cv = self.fig.canvas
@@ -398,12 +448,16 @@ class Visualiser:
             self.keys.add(k)
             self.released.pop(k, None)
         elif k == " ":
+            self.toggle_plan()
+        elif k in ("x", "escape"):
             self.keys.clear()
             self.released.clear()
+            self.plan_mode, self.queue = False, []
+            self.need_full = True
             self.cancel_nav()
-        elif k == "x":
-            self.cancel_nav()
-            self.say("navigation cancelled")
+            self.say("stopped: navigation and route cancelled")
+        elif k in ("[", "]"):
+            self.change_inflate(-1 if k == "[" else 1)
         elif k == "c":
             self.g_trail.clear()
             self.o_trail.clear()
@@ -442,6 +496,12 @@ class Visualiser:
         tb = getattr(self.fig.canvas, "toolbar", None)
         if tb is not None and str(getattr(tb, "mode", "")):   # zoom / pan tool active: not a drive click
             return
+        if self.plan_mode:                                    # planning a route: clicks queue waypoints
+            if ev.button == 1:
+                self.add_waypoint(ev.xdata, ev.ydata)
+            elif ev.button == 3:
+                self.undo_waypoint()
+            return
         if ev.button == 3:
             self.cancel_nav()
             self.say("navigation cancelled")
@@ -454,7 +514,7 @@ class Visualiser:
             return
         self.keys.clear()
         try:
-            self.pub.send("goal", action="go", x=x, y=y)                 # always tell the bus; an external planner picks it up
+            self.pub.send("goal", action="go", x=x, y=y, inflate=float(self.inflate))   # always tell the bus; an external planner picks it up
         except Exception as e:
             self.say(f"could not publish the goal: {e}", 6)
         self.nav_goal_xy = (x, y)
@@ -473,11 +533,110 @@ class Visualiser:
         self.nav.cancel()
         self.nav_goal_xy = None
         self.ext_path = None
+        self.route_shown, self.route_todo, self.route_done = [], [], 0
         if publish and self.a.drive:
             try:
                 self.pub.send("goal", action="cancel")
             except Exception:
                 pass
+
+    # ================================================================= route planning (space bar)
+    def drivable(self):
+        """Boolean map of where the robot's centre can go, cached until the map or the keep-out distance changes."""
+        key = (self.grid.scans, round(self.inflate, 3), self.a.plan_res)
+        if key != self.drive_key:
+            self.drive_key = key
+            self.drive_mask = drivable_area(self.grid, self.inflate, self.a.plan_res)
+        return self.drive_mask
+
+    def toggle_plan(self):
+        if not self.a.drive:
+            self.say("view-only mode (--no-drive): not driving")
+            return
+        if not self.plan_mode:
+            self.plan_mode, self.queue = True, []
+            self.need_full = True
+            self.say("PLAN: click inside the fuchsia to queue waypoints  |  right-click = undo  |  space = go  |  x = abort", 10)
+            return
+        self.plan_mode = False
+        self.need_full = True
+        queued, self.queue = list(self.queue), []
+        if queued:
+            self.send_route(queued)
+        else:
+            self.say("plan mode off (nothing was queued)")
+
+    def add_waypoint(self, x, y):
+        mask = self.drivable()
+        row, col = self.grid.to_cell(x, y)
+        if not self.grid.inside(row, col) or not mask[row, col]:
+            self.say(f"can't go there: not seen as free, or within {self.inflate:.2f} m of a wall", 4)
+            return
+        self.queue.append((float(x), float(y)))
+        self.say(f"waypoint {len(self.queue)} queued ({x:+.1f}, {y:+.1f})  |  space = go")
+
+    def undo_waypoint(self):
+        if self.queue:
+            self.queue.pop()
+            self.say(f"removed the last waypoint; {len(self.queue)} queued")
+        else:
+            self.say("nothing queued  |  space leaves plan mode, x stops the robot")
+
+    def change_inflate(self, direction):
+        step = self.a.plan_res if self.a.plan_res > 0 else 0.05
+        self.inflate = clamp(round(self.inflate + direction * step, 3), 0.0, 1.5)
+        self.drive_key = None
+        self.need_full = True
+        note = "  (the built-in planner keeps the --inflate it started with)" if self.builtin else ""
+        if self.plan_mode and self.queue:                         # waypoints that are no longer reachable are dropped
+            mask = self.drivable()
+            keep = []
+            for (qx, qy) in self.queue:
+                r, c = self.grid.to_cell(qx, qy)
+                if self.grid.inside(r, c) and mask[r, c]:
+                    keep.append((qx, qy))
+            dropped, self.queue = len(self.queue) - len(keep), keep
+            if dropped:
+                note += f"  ({dropped} waypoint{'s' if dropped != 1 else ''} dropped: no longer reachable)"
+        self.say(f"keep-out distance {self.inflate:.2f} m, sent with your next goal{note}", 6)
+
+    def send_route(self, pts):
+        self.keys.clear()
+        try:
+            self.pub.send("goal", action="route", route=[[x, y] for x, y in pts], inflate=float(self.inflate))
+        except Exception as e:
+            self.say(f"could not send the route: {e}", 6)
+            return
+        self.nav_goal_xy = pts[-1]
+        self.route_shown, self.route_done = list(pts), 0
+        n = len(pts)
+        if not self.builtin:
+            self.ext_path = None
+            self.say(f"route of {n} waypoint{'s' if n != 1 else ''} sent on the bus (port 5008) for your planner", 6)
+            return
+        pose, why = self.nav_pose()
+        if pose is None:
+            self.say(f"can't navigate yet: {why}", 6)
+            return
+        self.route_todo = list(pts[1:])
+        self.nav.set_goal(pts[0][0], pts[0][1], pose)
+        self.chain_after = time.monotonic() + 1.5
+        self.say(f"driving a route of {n} waypoint{'s' if n != 1 else ''}")
+
+    def _route_progress(self):
+        """Tick waypoints off as the robot reaches them; for the built-in planner also start the next leg."""
+        if self.route_shown and self.ghost is not None:
+            while self.route_shown and math.hypot(self.route_shown[0][0] - self.ghost[0],
+                                                  self.route_shown[0][1] - self.ghost[1]) < 0.4:
+                self.route_shown.pop(0)
+                self.route_done += 1
+        if (self.builtin and self.route_todo and not self.nav.active and self.nav.state == "arrived"
+                and time.monotonic() > self.chain_after):
+            pose, _why = self.nav_pose()
+            if pose is not None:
+                nx, ny = self.route_todo.pop(0)
+                self.nav.set_goal(nx, ny, pose)
+                self.chain_after = time.monotonic() + 1.5
 
     def nav_pose(self):
         """Pose to navigate/map from, or (None, why)."""
@@ -715,8 +874,11 @@ class Visualiser:
             elif t == "goal" and not self.builtin:
                 if m["action"] == "go":
                     self.nav_goal_xy = (m["x"], m["y"])
+                elif m["action"] == "route":
+                    self.nav_goal_xy = tuple(m["route"][-1])
                 else:
                     self.nav_goal_xy, self.ext_path = None, None
+                    self.route_shown, self.route_done = [], 0
 
         if self.odom is not None and not self.odom_anchored and self.gpos is not None:
             self.odom, self.odom_anchored = list(self.gpos), True
@@ -754,6 +916,7 @@ class Visualiser:
                 gh[1] += (fx[2] - gh[1]) * k
                 gh[2] = wrap(gh[2] + wrap(fx[4] - gh[2]) * k)
 
+        self._route_progress()
         self._maybe_map(now)
         self._set_fast_artists(now)
 
@@ -848,10 +1011,56 @@ class Visualiser:
 
         text = self.msg if time.monotonic() < self.msg_until else ""
         status = self._nav_status() if (self.nav.active or self.nav.state in ("arrived",) or not self.builtin) else ""
-        self.nav_text.set_text("   ".join(s for s in (status, text) if s) or "click the map to drive there  |  arrows: teleop")
+        if self.plan_mode:                                           # two lines, so a message never runs off the edge
+            n = len(self.queue)
+            status = (f"PLAN: {n} queued, keep-out {self.inflate:.2f} m  |  click = add   right-click = undo   "
+                      "space = go   x = abort")
+            self.nav_text.set_text("\n".join(s for s in (text, status) if s))
+        else:
+            self.nav_text.set_text("   ".join(s for s in (status, text) if s)
+                                   or "click the map to drive there  |  space: plan a route  |  arrows: teleop")
+        self._set_queue_artists()
+
+    def _set_queue_artists(self):
+        """Numbered fuchsia waypoints: the ones being queued in plan mode, else the ones the rover has still to reach."""
+        if self.plan_mode:
+            pts, first = self.queue, 1
+        else:
+            pts, first = self.route_shown, self.route_done + 1
+        sig = (tuple(pts), first)
+        if sig != self._q_sig:                                       # labels are rebuilt only when the list changes
+            self._q_sig = sig
+            for t in self.q_texts:
+                try:
+                    t.remove()
+                except Exception:
+                    pass
+            self.q_texts = [self.ax.text(x, y, str(first + i), color="white", fontsize=8, fontweight="bold",
+                                         ha="center", va="center", zorder=9, animated=True)
+                            for i, (x, y) in enumerate(pts)]
+        if pts:
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            if self.disp is not None:                                # the line starts at the robot
+                self.q_line.set_data([self.disp[0]] + xs, [self.disp[1]] + ys)
+            else:
+                self.q_line.set_data(xs, ys)
+            self.q_dots.set_data(xs, ys)
+        else:
+            self.q_line.set_data([], [])
+            self.q_dots.set_data([], [])
 
     def _update_slow(self, g_age, e_age):
         self.map_im.set_data(self.grid.image())
+        if self.plan_mode:
+            mask = self.drivable()
+            if self.drive_drawn != self.drive_key:
+                rgba = np.zeros(mask.shape + (4,), np.float32)
+                rgba[mask] = FUCHSIA_RGBA
+                self.drive_im.set_data(rgba)
+                self.drive_drawn = self.drive_key
+            self.drive_im.set_visible(True)
+        else:
+            self.drive_im.set_visible(False)
         for line, tr in ((self.g_line, self.g_trail), (self.o_line, self.o_trail)):
             if tr:
                 xs, ys = zip(*tr)
@@ -979,6 +1188,11 @@ class Visualiser:
                  ("  mapping ON" if pose is not None else f"  mapping OFF: {why}", WHITE if pose is not None else AMBER)]
 
         rows += [("", WHITE), ("NAVIGATION", HDR), (f"  {self._nav_status()[:44]}", WHITE)]
+        rows.append((f"  keep-out {self.inflate:.2f} m   ( [ and ] change it )", WHITE))
+        if self.plan_mode:
+            rows.append((f"  PLAN MODE: {len(self.queue)} queued, space = go", FUCHSIA))
+        elif self.route_shown:
+            rows.append((f"  route: {len(self.route_shown)} waypoint(s) still to reach", FUCHSIA))
         if self.builtin and (self.nav.active or self.nav.state in ("arrived", "no path")):
             rows.append((f"  plan   {self.nav.plan_ms:.0f} ms, {len(self.nav.path) if self.nav.path else 0} waypoints", WHITE))
 
@@ -988,7 +1202,9 @@ class Visualiser:
         rows.append((f"  v={lin:+.2f} m/s  w={ang:+.2f} rad/s" + ("" if live else "  (idle)"), GREEN if live and (lin or ang) else WHITE))
         rows.append((f"  limits {self.a.max_speed:g} m/s, {self.a.max_turn:g} rad/s", GREY))
         rows += [("", WHITE),
-                 ("arrows drive  space stop  x/right-click cancel", GREY),
+                 ("arrows drive   x / esc / right-click = stop", GREY),
+                 ("space = plan a route (fuchsia = reachable)", GREY),
+                 ("[ ] = keep-out distance", GREY),
                  ("[g] snap goal  [f] follow/full  [c] clear trails", GREY),
                  ("[o] odom  [r] reset map  [s] save map", GREY)]
         if self.sub.bad:
@@ -1026,7 +1242,9 @@ def main():
                          "(port 5008) and let your own planner publish cmd_vel and a path")
     ap.add_argument("--planner", help="your path planner as module:function (default: built-in Theta*; see common/planner.py)")
     ap.add_argument("--plan-res", type=float, default=0.10, help="planning grid cell size, m (default 0.10)")
-    ap.add_argument("--inflate", type=float, default=0.40, help="keep this far from walls, m (default 0.40)")
+    ap.add_argument("--inflate", type=float, default=0.40,
+                    help="keep the robot's centre this far from walls, m (default 0.40). Shown in fuchsia on space, sent with "
+                         "every goal; [ and ] change it while running")
     ap.add_argument("--replan", type=float, default=1.0, help="replan every this many seconds while driving (default 1)")
     ap.add_argument("--lookahead", type=float, default=0.6, help="path-following lookahead, m")
     ap.add_argument("--goal-tol", type=float, default=0.25, help="arrived when this close, m")

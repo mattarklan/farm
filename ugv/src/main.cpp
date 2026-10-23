@@ -7,7 +7,6 @@
 #include "rover/planning/theta_star.hpp"
 #include "rover/planning/follower.hpp"
 #include "rover/comms/udp_bus.hpp"
-#include "rover/localization/lidara2.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -61,6 +60,7 @@ constexpr bool   kRequireFreshLidar = true;
 
 constexpr double kReplanPeriodS = 0.5;  // how often the path is CHECKED. It is only replaced if blocked or left
 constexpr double kOffPathM      = 1.0;  // also replan if the rover ends up this far from its path
+constexpr double kWaypointTolM  = 0.4;  // a route waypoint counts as reached when the rover is this close
 
 using Clock = std::chrono::steady_clock;
 using Ray   = std::pair<double, double>;   // (range m, body-frame angle rad)
@@ -154,6 +154,34 @@ std::string json_string(const std::string& s, const char* key) {
     const size_t e = s.find('"', p);
     if (e == std::string::npos) return "";
     return s.substr(p, e - p);
+}
+
+// "key":[[x,y],[x,y],...]  ->  out.  False if the key is missing or the list is empty/malformed.
+bool json_xy_list(const std::string& s, const char* key, std::vector<Pose>& out) {
+    out.clear();
+    const std::string k = std::string("\"") + key + "\"";
+    size_t p = s.find(k);
+    if (p == std::string::npos) return false;
+    p = s.find('[', p + k.size());
+    if (p == std::string::npos) return false;
+    size_t cur = p + 1;
+    while (true) {
+        const size_t nb = s.find('[', cur);
+        const size_t ne = s.find(']', cur);
+        if (ne == std::string::npos) break;
+        if (nb == std::string::npos || ne < nb) break;   // the closing bracket of the whole list
+        const char* b = s.c_str() + nb + 1;
+        char* e1 = nullptr;
+        const double x = std::strtod(b, &e1);
+        if (e1 == b) { out.clear(); return false; }
+        while (*e1 == ' ' || *e1 == ',') ++e1;
+        char* e2 = nullptr;
+        const double y = std::strtod(e1, &e2);
+        if (e2 == e1) { out.clear(); return false; }
+        out.push_back(Pose{x, y, 0.0});
+        cur = ne + 1;
+    }
+    return !out.empty();
 }
 
 enum class MsgKind { Other, Goal, Pose, Lidar };
@@ -435,6 +463,7 @@ private:
     int  cellY(double wy) const { return static_cast<int>(std::floor((wy - oy_) / res_)); }
 
     static constexpr uint8_t kFlagHit = 1, kFlagPassed = 2, kFlagProtect = 4;
+    static constexpr int kProtectCells = 1;   // cells around a hit that are not eroded in the same scan (0 makes the wall count flicker)
 
     void bump(int idx, int d) {
         int8_t& v = lo_[idx];
@@ -465,8 +494,8 @@ private:
         }
         if (is_hit && inBounds(x1, y1)) {
             touch(y1 * w_ + x1, kFlagHit);
-            for (int oy = -1; oy <= 1; ++oy)
-                for (int ox = -1; ox <= 1; ++ox)
+            for (int oy = -kProtectCells; oy <= kProtectCells; ++oy)
+                for (int ox = -kProtectCells; ox <= kProtectCells; ++ox)
                     if (inBounds(x1 + ox, y1 + oy)) touch((y1 + oy) * w_ + (x1 + ox), kFlagProtect);
         }
     }
@@ -569,21 +598,7 @@ int main() {
         start_pose = state.pose;
         pose_estimator.set_pose(start_pose.x, start_pose.y, start_pose.yaw);
     }
-// Detect and initialize LiDAR hardware or fallback to simulation
-    rover::localization::LidarA2 lidar_a2("COM3", 115200);
-    bool use_real_lidar = lidar_a2.isConnected();
 
-    if (use_real_lidar) {
-        std::cout << "[Main] RPLidar A2 detected on COM3. Starting C++ lidar driver...\n";
-        lidar_a2.start();
-    } else {
-        std::cout << "[Main] RPLidar A2 not detected. Launching simulation (sims/sim_lidar.py)...\n";
-#ifdef _WIN32
-        std::system("start /B python ..\\sims\\sim_lidar.py --map ..\\sims\\obstacle_map.png");
-#else
-        std::system("python ../sims/sim_lidar.py --map ../sims/obstacle_map.png&");
-#endif
-    }
     // ---------------------------------------------------------------- state
     rover::planning::PurePursuit follower(0.8, 1.0, 0.6, 0.25);
     OccupancyMap world_map(kMapW, kMapH, kMapRes);
@@ -592,6 +607,8 @@ int main() {
     PoseHistory history;
 
     std::vector<Pose> global_path;
+    std::vector<Pose> route;                 // waypoints still to visit; the last one is the final goal
+    double inflate_m = kInflateM;            // keep-out distance for the current goal (a goal message can set it)
     Pose active_goal{0.0, 0.0, 0.0};
     bool is_teleop_active = false;
     bool has_active_goal  = false;
@@ -622,6 +639,7 @@ int main() {
     };
 
     auto clear_path = [&]() {
+        route.clear();
         global_path.clear();
         follower.set_path({});
         {
@@ -631,16 +649,38 @@ int main() {
         udp_bus.send(5008, path_json({}));   // so the visualiser stops drawing the old path
     };
 
-    // force = true for a brand new goal. Otherwise the current path is kept unless it is blocked
-    // (a wall now sits on it) or the rover has ended up far from it.
-    auto plan_and_publish = [&](const Pose& from, const Pose& goal, bool force, bool log) -> bool {
+    // Plans from `from` through every waypoint left in `route`, as ONE continuous path (so the rover does not
+    // stop and re-aim at each waypoint). Returns false if any leg has no path.
+    auto plan_route = [&](const Pose& from, const std::vector<uint8_t>& grid, std::vector<Pose>& out) -> bool {
+        out.clear();
+        Pose start = from;
+        for (size_t i = 0; i < route.size(); ++i) {
+            auto leg = planner.plan_path(start, route[i], grid);
+            if (leg.empty()) {
+                std::cerr << "[Planner ERROR] No path from (" << start.x << ", " << start.y << ") to "
+                          << (route.size() > 1 ? "waypoint " + std::to_string(i + 1) + " " : std::string("goal "))
+                          << "(" << route[i].x << ", " << route[i].y << ").\n";
+                out.clear();
+                return false;
+            }
+            if (out.empty()) out = leg;
+            else out.insert(out.end(), leg.begin() + 1, leg.end());
+            start = leg.back();
+        }
+        return !out.empty();
+    };
+
+    // force = true for a brand new goal or route. Otherwise the current path is kept unless it is blocked
+    // (a wall now sits on it) or the rover has ended up far from it. Plans through whatever is left in `route`.
+    auto plan_and_publish = [&](const Pose& from, bool force, bool log) -> bool {
+        if (route.empty()) return false;
         world_map.recenterIfNeeded(from.x, from.y);
         planner.set_origin(world_map.originX(), world_map.originY());
         world_map.clearFootprint(from.x, from.y, kFootprintM);
 
         const auto plan_grid = world_map.buildPlanningGrid(
             from.x, from.y,
-            static_cast<int>(std::round(kInflateM / kMapRes)),
+            static_cast<int>(std::round(inflate_m / kMapRes)),
             static_cast<int>(std::round(kClearM / kMapRes)));
 
         if (!force && !global_path.empty()) {
@@ -651,12 +691,8 @@ int main() {
             std::cout << "[Planner] Replanning: " << (blocked ? "path is blocked" : "rover is off the path") << "\n";
         }
 
-        auto path = planner.plan_path(from, goal, plan_grid);
-        if (path.empty()) {
-            std::cerr << "[Planner ERROR] No path from (" << from.x << ", " << from.y
-                      << ") to goal (" << goal.x << ", " << goal.y << ").\n";
-            return false;
-        }
+        std::vector<Pose> path;
+        if (!plan_route(from, plan_grid, path)) return false;
 
         global_path = path;
         follower.set_path(global_path);
@@ -714,6 +750,36 @@ int main() {
         write_rover_pos_file("rtk/rover_pos.dat", Pose{x, y, yaw});
     };
 
+    // A new goal or route: plan it and start driving. Returns false (and stops) if there is no path.
+    auto start_route = [&](const std::string& msg, std::vector<Pose> wps, Clock::time_point now) {
+        if (!have_pose) {
+            std::cerr << "[Planner] Ignoring goal: no pose received from the bus yet.\n";
+            return;
+        }
+        double inf = kInflateM;
+        if (json_number(msg, "inflate", inf)) inf = std::clamp(inf, 0.0, 1.5);
+        else inf = kInflateM;
+        inflate_m = inf;
+
+        const Pose cur = get_pose();
+        route = std::move(wps);
+        active_goal = route.back();
+        is_teleop_active = false;
+        std::cout << "[Planner] New " << (route.size() > 1 ? "route with " + std::to_string(route.size()) + " waypoints" : std::string("goal"))
+                  << " -> (" << active_goal.x << ", " << active_goal.y << ") from (" << cur.x << ", " << cur.y
+                  << "), keep-out " << std::fixed << std::setprecision(2) << inflate_m << " m\n";
+
+        if (!plan_and_publish(cur, true, true)) {
+            has_active_goal = false;
+            clear_path();
+            stop_motors(false);
+            send_cmd(0.0, 0.0);
+            return;
+        }
+        has_active_goal = true;
+        last_replan = now;
+    };
+
     auto handle_goal = [&](const std::string& msg, const std::string& action, Clock::time_point now) {
         if (action == "teleop" || action == "key") {
             is_teleop_active = true;
@@ -735,24 +801,14 @@ int main() {
                 std::cerr << "[Planner] Ignoring 'go' without x and y.\n";
                 return;
             }
-            if (!have_pose) {
-                std::cerr << "[Planner] Ignoring goal: no pose received from the bus yet.\n";
+            start_route(msg, {Pose{gx, gy, 0.0}}, now);
+        } else if (action == "route") {
+            std::vector<Pose> wps;
+            if (!json_xy_list(msg, "route", wps)) {
+                std::cerr << "[Planner] Ignoring 'route' with no usable waypoints.\n";
                 return;
             }
-            const Pose cur = get_pose();
-            active_goal = Pose{gx, gy, 0.0};
-            std::cout << "[Planner] New goal (" << gx << ", " << gy << ") from (" << cur.x << ", " << cur.y << ")\n";
-            is_teleop_active = false;
-
-            if (!plan_and_publish(cur, active_goal, true, true)) {
-                has_active_goal = false;
-                clear_path();
-                stop_motors(false);
-                send_cmd(0.0, 0.0);
-                return;
-            }
-            has_active_goal = true;
-            last_replan = now;
+            start_route(msg, std::move(wps), now);
         }
     };
 
@@ -870,9 +926,16 @@ int main() {
                 }
                 send_cmd(0.0, 0.0);
             } else {
+                // Waypoints the rover has reached drop off the front of the route (the last one is the goal itself)
+                while (route.size() > 1 && std::hypot(route.front().x - cur.x, route.front().y - cur.y) < kWaypointTolM) {
+                    std::cout << "[Route] Waypoint reached (" << route.front().x << ", " << route.front().y << "), "
+                              << route.size() - 1 << " to go\n";
+                    route.erase(route.begin());
+                }
+
                 if (secs_between(now, last_replan) >= kReplanPeriodS) {
                     last_replan = now;
-                    if (!plan_and_publish(cur, active_goal, false, false) && due(warn_plan, now, 3.0)) {
+                    if (!plan_and_publish(cur, false, false) && due(warn_plan, now, 3.0)) {
                         std::cerr << "[Planner] Replan failed; keeping the current path.\n";
                     }
                 }
@@ -941,6 +1004,7 @@ int main() {
                       << " | Mode: " << g_mode.load()
                       << " | v: " << v.linear << " w: " << v.angular
                       << " | front: " << forward_clearance << " m"
+                      << " | route: " << route.size()
                       << " | pose age: " << std::min(pose_age, 99.0) << " s"
                       << " | walls: " << world_map.occupiedCount() << "\n";
         }
@@ -970,10 +1034,8 @@ int main() {
 
     std::cout << "[Main] Shutting down.\n";
     stop_motors(false);
-lidar_a2.stop();
     send_cmd(0.0, 0.0);
     motor_driver.stop();
     debug_server.stop();
-
     return 0;
 }
