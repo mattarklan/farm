@@ -77,7 +77,7 @@ void LocalCostmap::update(const std::vector<std::pair<double, double>>& lidar_sc
         }
     }
 
-    inflateObstacles(3);
+    inflateObstacles(10);
 }
 
 void LocalCostmap::inflateObstacles(int inflation_radius_cells) {

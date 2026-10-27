@@ -4,10 +4,20 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
-#include <queue>
-#include <vector>
 
 namespace rover::planning {
+
+namespace {
+// Priority-queue entry with the f-cost frozen at push time. (Comparing live node costs inside the heap,
+// as the old code did, breaks the heap ordering whenever a queued node's cost is later lowered.)
+struct QEntry {
+    double f;
+    GridNode* n;
+};
+struct QCmp {
+    bool operator()(const QEntry& a, const QEntry& b) const { return a.f > b.f; }
+};
+} // namespace
 
 ThetaStarPlanner::ThetaStarPlanner(int map_width_cells, int map_height_cells, double resolution_m)
     : width_(map_width_cells), height_(map_height_cells), resolution_(resolution_m) {}
@@ -22,6 +32,8 @@ double ThetaStarPlanner::Heuristic(const GridNode* a, const GridNode* b) const {
     return EuclideanDistance(a, b);
 }
 
+// World ENU -> cell index. The grid is anchored at a FIXED world origin (set_origin), so cells
+// keep their world position as the rover drives around.
 bool ThetaStarPlanner::world_to_grid(double wx, double wy, int& gx, int& gy) const {
     gx = static_cast<int>(std::floor((wx - origin_x_) / resolution_));
     gy = static_cast<int>(std::floor((wy - origin_y_) / resolution_));
@@ -36,6 +48,7 @@ Pose ThetaStarPlanner::grid_to_world(int gx, int gy) const {
     return p;
 }
 
+// If (x,y) is blocked, move it to the closest free cell within max_radius cells.
 bool ThetaStarPlanner::find_nearest_free(int& x, int& y, const std::vector<uint8_t>& grid, int max_radius) const {
     if (grid[y * width_ + x] == 0) return true;
 
@@ -44,7 +57,7 @@ bool ThetaStarPlanner::find_nearest_free(int& x, int& y, const std::vector<uint8
         int bx = -1, by = -1;
         for (int dy = -r; dy <= r; ++dy) {
             for (int dx = -r; dx <= r; ++dx) {
-                if (std::max(std::abs(dx), std::abs(dy)) != r) continue;
+                if (std::max(std::abs(dx), std::abs(dy)) != r) continue; // ring only
                 int nx = x + dx, ny = y + dy;
                 if (nx < 0 || nx >= width_ || ny < 0 || ny >= height_) continue;
                 if (grid[ny * width_ + nx] != 0) continue;
@@ -75,6 +88,7 @@ bool ThetaStarPlanner::line_of_sight(const GridNode* s, const GridNode* s_prime,
         bool step_x = e2 > -dy;
         bool step_y = e2 < dx;
 
+        // Diagonal step: don't squeeze between two touching obstacle corners
         if (step_x && step_y) {
             int ax = x0 + sx, ay = y0 + sy;
             if (ax < 0 || ax >= width_ || ay < 0 || ay >= height_) return false;
@@ -87,9 +101,17 @@ bool ThetaStarPlanner::line_of_sight(const GridNode* s, const GridNode* s_prime,
     return true;
 }
 
+// Lazy Theta*.
+//
+// Plain Theta* runs a line-of-sight check from every expanded node's PARENT to EVERY neighbour it touches
+// (up to 8 per expansion). Lazy Theta* optimistically ASSUMES that line of sight exists when a neighbour is
+// first reached, and only checks it when the node is actually popped for expansion (SetVertex). Most nodes
+// that get reached are never popped, so most of those checks never happen. If the check fails when the node
+// is popped, its parent is repaired from an already-closed grid neighbour. Paths are still any-angle, and
+// every edge in the returned path has been verified against the grid.
 std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
-                                              const Pose& goal_pose,
-                                              const std::vector<uint8_t>& grid)
+                                            const Pose& goal_pose,
+                                            const std::vector<uint8_t>& grid)
 {
     std::vector<Pose> path;
 
@@ -101,10 +123,13 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
     int start_gx, start_gy, goal_gx, goal_gy;
     if (!world_to_grid(start_pose.x, start_pose.y, start_gx, start_gy) ||
         !world_to_grid(goal_pose.x, goal_pose.y, goal_gx, goal_gy)) {
-        std::cerr << "[Theta* ERROR] Start or Goal is outside the map!\n";
+        std::cerr << "[Theta* ERROR] Start or Goal is outside the map!\n"
+                  << "  Start: (" << start_pose.x << ", " << start_pose.y << ") -> cell (" << start_gx << ", " << start_gy << ")\n"
+                  << "  Goal:  (" << goal_pose.x << ", " << goal_pose.y << ") -> cell (" << goal_gx << ", " << goal_gy << ")\n";
         return path;
     }
 
+    // Start/goal inside an obstacle or its inflation: snap to the nearest free cell rather than failing.
     if (!find_nearest_free(start_gx, start_gy, grid, 8)) {
         std::cerr << "[Theta* ERROR] No free cell near the start position!\n";
         return path;
@@ -115,6 +140,9 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
         return path;
     }
     const bool goal_moved = (goal_gx != orig_goal_gx || goal_gy != orig_goal_gy);
+    if (goal_moved) {
+        std::cerr << "[Theta*] Goal was blocked; moved to nearest free cell.\n";
+    }
 
     const int N = width_ * height_;
     std::vector<GridNode*> nodes(N, nullptr);
@@ -132,82 +160,82 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
         return nodes[k];
     };
 
-    // The open list stores a SNAPSHOT of f = g + h taken when the node is pushed.
-    // The old queue compared nodes by their live g_cost, which Theta* changes while the node is
-    // still inside the heap. That silently breaks the heap ordering and produces odd, longer paths.
-    struct Entry {
-        double f;
-        GridNode* node;
-    };
-    struct EntryCmp {
-        bool operator()(const Entry& a, const Entry& b) const { return a.f > b.f; }   // min-heap on f
-    };
-    std::priority_queue<Entry, std::vector<Entry>, EntryCmp> open_set;
-
-    GridNode* start_node = get_node(start_gx, start_gy);
-    start_node->g_cost = 0.0;
-    open_set.push({start_node->g_cost + start_node->h_cost, start_node});
-
     static const int neighbors[8][2] = {
         {1,0}, {-1,0}, {0,1}, {0,-1},
         {1,1}, {1,-1}, {-1,1}, {-1,-1}
     };
 
-    GridNode* goal_found = nullptr;
-    int expansions = 0;
-    // Enough to search most of the 600x600 map. A big detour around a real wall needs far more
-    // than the old 40,000, which is why open-looking routes sometimes came back as "no path".
-    const int max_expansions = 250000;
-
-    while (!open_set.empty()) {
-        if (++expansions > max_expansions) {
-            std::cerr << "[Theta* ERROR] Path search aborted: exceeded max expansions (unreachable goal?).\n";
-            return path;
+    // A grid step from (x,y) by dir is allowed if it stays on the map, lands on a free cell and (for
+    // diagonals) does not cut between two touching obstacle corners.
+    auto step_ok = [&](int x, int y, const int* dir) {
+        int nx = x + dir[0], ny = y + dir[1];
+        if (nx < 0 || nx >= width_ || ny < 0 || ny >= height_) return false;
+        if (grid[ny * width_ + nx] != 0) return false;
+        if (dir[0] != 0 && dir[1] != 0) {
+            if (grid[y * width_ + nx] != 0 || grid[ny * width_ + x] != 0) return false;
         }
+        return true;
+    };
 
-        const Entry top = open_set.top();
+    // SetVertex: the optimistic parent of s was never checked. Check it now; if it has no line of sight,
+    // fall back to the best already-closed grid neighbour (whose own parent chain has been verified).
+    auto set_vertex = [&](GridNode* s) {
+        if (s->parent == s) return; // start node
+        if (line_of_sight(s->parent, s, grid)) return;
+
+        double best = 1e18;
+        GridNode* best_parent = nullptr;
+        for (const auto& dir : neighbors) {
+            if (!step_ok(s->x, s->y, dir)) continue;
+            int k = (s->y + dir[1]) * width_ + (s->x + dir[0]);
+            if (!closed[k]) continue;
+            GridNode* c = nodes[k];
+            double g = c->g_cost + EuclideanDistance(c, s);
+            if (g < best) { best = g; best_parent = c; }
+        }
+        if (best_parent) {
+            s->parent = best_parent;
+            s->g_cost = best;
+        }
+    };
+
+    std::priority_queue<QEntry, std::vector<QEntry>, QCmp> open_set;
+
+    GridNode* start_node = get_node(start_gx, start_gy);
+    start_node->g_cost = 0.0;
+    start_node->parent = start_node; // marks the root of the parent chain
+    open_set.push({start_node->h_cost, start_node});
+
+    GridNode* goal_found = nullptr;
+    while (!open_set.empty()) {
+        GridNode* current = open_set.top().n;
         open_set.pop();
-        GridNode* current = top.node;
 
         const int current_key = current->y * width_ + current->x;
-        if (closed[current_key]) continue;
-        closed[current_key] = 1;
+        if (closed[current_key]) continue; // stale duplicate entry
+
+        set_vertex(current);
 
         if (current->x == goal_gx && current->y == goal_gy) {
             goal_found = current;
             break;
         }
+        closed[current_key] = 1;
 
+        // ComputeCost: a neighbour optimistically inherits current's (now verified) parent
+        GridNode* p = current->parent;
         for (const auto& dir : neighbors) {
+            if (!step_ok(current->x, current->y, dir)) continue;
             int nx = current->x + dir[0];
             int ny = current->y + dir[1];
-
-            if (nx < 0 || nx >= width_ || ny < 0 || ny >= height_) continue;
-
-            int n_key = ny * width_ + nx;
-            if (closed[n_key]) continue;
-            if (grid[n_key] != 0) continue;
-
-            if (dir[0] != 0 && dir[1] != 0) {
-                if (grid[current->y * width_ + nx] != 0 || grid[ny * width_ + current->x] != 0) continue;
-            }
+            if (closed[ny * width_ + nx]) continue;
 
             GridNode* neighbor = get_node(nx, ny);
-
-            if (current->parent && line_of_sight(current->parent, neighbor, grid)) {
-                double new_g = current->parent->g_cost + EuclideanDistance(current->parent, neighbor);
-                if (new_g < neighbor->g_cost) {
-                    neighbor->g_cost = new_g;
-                    neighbor->parent = current->parent;
-                    open_set.push({new_g + neighbor->h_cost, neighbor});
-                }
-            } else {
-                double new_g = current->g_cost + EuclideanDistance(current, neighbor);
-                if (new_g < neighbor->g_cost) {
-                    neighbor->g_cost = new_g;
-                    neighbor->parent = current;
-                    open_set.push({new_g + neighbor->h_cost, neighbor});
-                }
+            double new_g = p->g_cost + EuclideanDistance(p, neighbor);
+            if (new_g < neighbor->g_cost) {
+                neighbor->g_cost = new_g;
+                neighbor->parent = p;
+                open_set.push({new_g + neighbor->h_cost, neighbor});
             }
         }
     }
@@ -217,11 +245,13 @@ std::vector<Pose> ThetaStarPlanner::plan_path(const Pose& start_pose,
         return path;
     }
 
-    for (GridNode* curr = goal_found; curr; curr = curr->parent) {
+    for (GridNode* curr = goal_found;; curr = curr->parent) {
         path.push_back(grid_to_world(curr->x, curr->y));
+        if (curr->parent == curr) break;
     }
     std::reverse(path.begin(), path.end());
 
+    // Use the exact start pose / goal point instead of cell centers
     path.front().x = start_pose.x;
     path.front().y = start_pose.y;
     if (!goal_moved) {

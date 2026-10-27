@@ -262,7 +262,7 @@ def main():
                 print(f"[SIM] {name:<9} pos=({x:+.2f}, {y:+.2f}) yaw={math.degrees(yaw):+4.0f} deg  v={v:+.2f} w={w:+.2f}  "
                       f"cmd=({tv:+.2f}, {tw:+.2f})", flush=True)
 
-            time.sleep(0.005)
+            time.sleep(0.05)
 
     except KeyboardInterrupt:
         print("\n[SIM] stopped.", flush=True)

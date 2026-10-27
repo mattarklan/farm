@@ -50,6 +50,7 @@ constexpr double kFreeRayM    = 5.0;    // beams with no return are treated as f
 constexpr double kEraseRangeM = 5.0;    // walls are only ever ERASED within this range of the lidar. Farther away they persist,
                                         // and so do walls you have driven away from (nothing sees through them)
 constexpr bool   kInferFreeFromMissing = true;   // simulated lidar drops beams that hit nothing; set false for real hardware
+constexpr double kMaxBiasRad = 15.0 * M_PI / 180.0;   // largest heading correction the map matcher may hold
 constexpr double kMapMaxYawRate = 0.3;  // rad/s: do not add scans to the map while turning faster than this
 constexpr double kTurnSlowW     = 0.3;  // above this commanded turn rate the rover slows down (same arc, driven slower)
 constexpr double kTurnSlowMin   = 0.5;  // ...down to this fraction of speed at full turn rate
@@ -347,6 +348,7 @@ public:
         if (!toCell(rx, ry, sx, sy)) return;
         touched_.clear();
 
+        protectSurfaces(rx, ry, ryaw, hits);
         for (const auto& s : free_rays) {
             const double hx = rx + s.first * std::cos(s.second + ryaw);
             const double hy = ry + s.first * std::sin(s.second + ryaw);
@@ -364,6 +366,47 @@ public:
             else if ((f & kFlagPassed) && !(f & kFlagProtect)) bump(idx, kMiss);
             flags_[idx] = 0;
         }
+    }
+
+    // Heading correction by scan matching. Position (RTK) is trusted; only the heading is searched, within
+    // +-kMatchMaxDeg of `centre_yaw`. Returns true and the best total yaw when the match is reliable.
+    // Call BEFORE integrate(), so the scan is compared with what was learned earlier.
+    bool matchYaw(double rx, double ry, double centre_yaw, const std::vector<Ray>& hits, double& best_yaw, double& fit) const {
+        std::vector<Ray> use;
+        for (const auto& h : hits) if (h.first > 0.3 && h.first < kMatchRangeM) use.push_back(h);
+        if (use.size() < 25 || occupiedCount() < 60) return false;
+        constexpr int kN = 25;                       // -6..+6 deg in 0.5 deg steps
+        constexpr double kStep = 0.5 * M_PI / 180.0;
+        double score[kN];
+        const double s2 = 2.0 * 0.7 * 0.7;           // blur sigma 0.7 cells
+        for (int i = 0; i < kN; ++i) {
+            const double yaw = centre_yaw + (i - kN / 2) * kStep;
+            double sum = 0.0;
+            for (const auto& h : use) {
+                const double fx = (rx + h.first * std::cos(h.second + yaw) - ox_) / res_;
+                const double fy = (ry + h.first * std::sin(h.second + yaw) - oy_) / res_;
+                const int cx = static_cast<int>(std::floor(fx)), cy = static_cast<int>(std::floor(fy));
+                double best = 0.0;
+                for (int dy = -2; dy <= 2; ++dy)
+                    for (int dx = -2; dx <= 2; ++dx) {
+                        const int nx = cx + dx, ny = cy + dy;
+                        if (!inBounds(nx, ny) || lo_[ny * w_ + nx] < kOccThresh) continue;
+                        const double ex = fx - (nx + 0.5), ey = fy - (ny + 0.5);
+                        best = std::max(best, std::exp(-(ex * ex + ey * ey) / s2));
+                    }
+                sum += best;
+            }
+            score[i] = sum / use.size() - 0.002 * std::abs(i - kN / 2);   // ties go to the smaller correction
+        }
+        int bi = 0;
+        for (int i = 1; i < kN; ++i) if (score[i] > score[bi]) bi = i;
+        if (bi == 0 || bi == kN - 1) return false;                         // best answer on the edge of the search: not trustworthy
+        if (score[bi] < 0.35 || score[bi] - score[kN / 2] < 0.01) return false;
+        const double denom = score[bi - 1] - 2 * score[bi] + score[bi + 1];
+        const double off = std::abs(denom) < 1e-9 ? 0.0 : std::clamp(0.5 * (score[bi - 1] - score[bi + 1]) / denom, -1.0, 1.0);
+        best_yaw = centre_yaw + (bi - kN / 2 + off) * kStep;
+        fit = score[bi];
+        return true;
     }
 
     void reset() { std::fill(lo_.begin(), lo_.end(), static_cast<int8_t>(0)); }
@@ -464,6 +507,41 @@ private:
 
     static constexpr uint8_t kFlagHit = 1, kFlagPassed = 2, kFlagProtect = 4;
     static constexpr int kProtectCells = 1;   // cells around a hit that are not eroded in the same scan (0 makes the wall count flicker)
+
+    static constexpr double kMatchRangeM = 9.0;
+
+    // Cells that lie ON a surface this scan saw: every hit, and the straight line between each pair of
+    // neighbouring hits that look like the same surface. On a wall seen at a steep angle the hits are far apart;
+    // the beams between them graze wall cells no beam ended in, and those cells must not be cleared.
+    void protectSurfaces(double rx, double ry, double ryaw, const std::vector<Ray>& hits) {
+        if (hits.size() < 2) return;
+        std::vector<Ray> h(hits);
+        std::sort(h.begin(), h.end(), [](const Ray& a, const Ray& b) { return a.second < b.second; });
+        auto pt = [&](const Ray& r, double& x, double& y) {
+            x = (rx + r.first * std::cos(r.second + ryaw) - ox_) / res_;
+            y = (ry + r.first * std::sin(r.second + ryaw) - oy_) / res_;
+        };
+        const double join_rad = 4.0 * M_PI / 180.0;
+        for (size_t i = 0; i < h.size(); ++i) {
+            const Ray& a = h[i];
+            const Ray& b = h[(i + 1) % h.size()];
+            double gap = b.second - a.second;
+            if (i + 1 == h.size()) gap += 2.0 * M_PI;
+            if (gap > join_rad || std::abs(a.first - b.first) > 1.0) continue;
+            double ax, ay, bx, by;
+            pt(a, ax, ay); pt(b, bx, by);
+            const double len = std::hypot(bx - ax, by - ay);
+            if (len * res_ > 1.0) continue;
+            const int n = std::max(1, static_cast<int>(std::ceil(len * 2.0)));
+            for (int k = 0; k <= n; ++k) {
+                const int cx = static_cast<int>(std::floor(ax + (bx - ax) * k / n));
+                const int cy = static_cast<int>(std::floor(ay + (by - ay) * k / n));
+                for (int oy = -1; oy <= 1; ++oy)
+                    for (int ox = -1; ox <= 1; ++ox)
+                        if (inBounds(cx + ox, cy + oy)) touch((cy + oy) * w_ + (cx + ox), kFlagProtect);
+            }
+        }
+    }
 
     void bump(int idx, int d) {
         int8_t& v = lo_[idx];
@@ -605,6 +683,7 @@ int main() {
     LocalCostmap local_costmap(200, 200, kLocalRes);
     rover::planning::ThetaStarPlanner planner(kMapW, kMapH, kMapRes);
     PoseHistory history;
+    double heading_bias = 0.0, logged_bias = 0.0;   // lidar-derived heading correction used for mapping only
 
     std::vector<Pose> global_path;
     std::vector<Pose> route;                 // waypoints still to visit; the last one is the final goal
@@ -881,7 +960,25 @@ int main() {
                 if (!any) free_rays.push_back({kFreeRayM, -b * M_PI / 180.0});
             }
         }
-        world_map.integrate(scan_pose.x, scan_pose.y, scan_pose.yaw, hits, free_rays);
+        // Heading: position is RTK, so only the yaw can be off. Line the scan up with what the map already holds
+        // and put it in at the matched heading, so a drifting heading cannot smear a second copy of every wall.
+        double map_yaw = wrap_angle(scan_pose.yaw + heading_bias);
+        {
+            double matched = 0.0, fit = 0.0;
+            if (world_map.matchYaw(scan_pose.x, scan_pose.y, map_yaw, hits, matched, fit)) {
+                const double total = wrap_angle(matched - scan_pose.yaw);
+                if (std::abs(wrap_angle(matched - map_yaw)) > 0.15 * M_PI / 180.0) {
+                    heading_bias = std::clamp(heading_bias + 0.5 * wrap_angle(total - heading_bias), -kMaxBiasRad, kMaxBiasRad);
+                    map_yaw = wrap_angle(matched);
+                }
+                if (std::abs(heading_bias - logged_bias) > 0.5 * M_PI / 180.0) {
+                    logged_bias = heading_bias;
+                    std::cout << "[Map] heading correction " << std::fixed << std::setprecision(1) << heading_bias * 180.0 / M_PI
+                              << " deg (scan fit " << std::setprecision(2) << fit << ")\n" << std::defaultfloat;
+                }
+            }
+        }
+        world_map.integrate(scan_pose.x, scan_pose.y, map_yaw, hits, free_rays);
     };
 
     std::cout << "\n[Main] Rover online and waiting for commands...\n\n";

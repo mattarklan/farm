@@ -1390,7 +1390,6 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: C:/Users/Matt/Desktop/farm/ugv/src/ma
   C:/Users/Matt/Desktop/farm/ugv/include/rover/comms/udp_bus.hpp \
   C:/Users/Matt/Desktop/farm/ugv/include/rover/debug/debug_server.hpp \
   C:/Users/Matt/Desktop/farm/ugv/include/rover/gps/gps_driver.hpp \
-  C:/Users/Matt/Desktop/farm/ugv/include/rover/localization/lidara2.hpp \
   C:/Users/Matt/Desktop/farm/ugv/include/rover/localization/pose_estimator.hpp \
   C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/motor_interface.hpp \
   C:/Users/Matt/Desktop/farm/ugv/include/rover/motors/serial_port.hpp \
