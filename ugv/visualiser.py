@@ -17,27 +17,15 @@ What you see
   SCAN    red dots: the latest lidar scan, drawn around the robot.
   TRAILER (amber box) attached behind the rover via a hitch bar to test turning radii.
 
-Driving
+Driving & Waypoint Management
   arrow keys     teleop (up/down = forward/back, left/right = turn)
-  left click     on the map: plan a path to that point on the learned map and drive it (replans as the map
-                 fills in; unknown space counts as free, so it explores towards the goal)
-  right click    or  x / esc : stop and cancel.   Any arrow key also takes over from the navigator.
-  space          PLAN A ROUTE. The map lights up FUCHSIA wherever the robot's centre can go without coming
-                 within --inflate of a wall (seen-free space only). Left-click inside the fuchsia to queue
-                 numbered waypoints, right-click undoes the last one, space again sends the whole route.
-  [  and  ]      change the keep-out distance by one planning cell (0.1 m). The fuchsia updates live and the
-                 new value is sent with every goal, so you can watch a narrow gap open up before you drive.
-  Needs an RTK fix of at least --min-fix (default Float RTK) for mapping and click-to-drive.
-
-Other keys   f follow robot / whole map     c clear trails     o re-anchor odometry     g snap goal to telemetry
-             r reset the learned map        s save it (learned_map.png + learned_map.json)
+  space          Toggle Waypoint Recording Mode. Click & drag to draw custom paths/bulb turns. Press space again to save & play.
+  p              Play/execute the loaded waypoints route.
+  left click     on the map (when not recording): plan a path to that point and drive it.
+  right click    or  x / esc : stop and cancel navigation.
 
   pip install pygame numpy pillow
-  python visualiser.py                                       # runs with default trailer attached
-  python visualiser.py --no-trailer                          # runs without trailer
-  python visualiser.py --load-map learned_map.png            # load saved map & metadata
-
-Layout: ugv/visualiser.py
+  python visualiser.py --load-waypoints waypoints.json
 """
 
 import argparse
@@ -118,25 +106,6 @@ def find_cmap(args):
     return next((p for p in CMAP_SEARCH if os.path.exists(p)), None)
 
 
-def drivable_area(grid, inflate_m, plan_res=0.10):
-    walls = grid.blocked()
-    free = grid.grid < FREE_T
-    keep = math.floor(inflate_m / plan_res + 0.5) * plan_res if plan_res > 0 else inflate_m
-    reach = keep / grid.res
-    r = int(math.floor(reach + 1e-9))
-    if r <= 0 or not walls.any():
-        return free
-    h, w = walls.shape
-    pad = np.pad(walls, r)
-    near = np.zeros_like(walls)
-    lim = reach * reach + 1e-9
-    for dy in range(-r, r + 1):
-        for dx in range(-r, r + 1):
-            if dx * dx + dy * dy <= lim:
-                near |= pad[r + dy:r + dy + h, r + dx:r + dx + w]
-    return free & ~near
-
-
 class PygameVisualiser:
     def __init__(self, args):
         self.a = args
@@ -205,6 +174,19 @@ class PygameVisualiser:
         self.trailer_pose = None  # [x, y, yaw]
         self.trailer_trail = deque(maxlen=args.trail)
 
+        # Waypoint Recording & Loading state
+        self.waypoint_record_mode = False
+        self.recorded_waypoints = []  # list of {"x": wx, "y": wy, "wait_sec": 0, "action": "none"}
+        self.is_dragging = False
+        self.drag_current_path = []
+
+        # Load waypoints if specified via argument
+        if args.load_waypoints and os.path.exists(args.load_waypoints):
+            self.load_waypoints_json(args.load_waypoints)
+
+        # Active mission action tracking for sidebar
+        self.current_action = "none"
+
         # Navigation
         self.est = PoseEstimator()
         if args.planner:
@@ -220,14 +202,6 @@ class PygameVisualiser:
 
         # Route planning & state
         self.inflate = clamp(args.inflate, 0.0, 1.5)
-        self.plan_mode = False
-        self.queue = []
-        self.route_shown = []
-        self.route_done = 0
-        self.route_todo = []
-        self.chain_after = 0.0
-        self.drive_key, self.drive_mask = None, None
-
         self.rv = self.es = None
         self.gpos, self.g_ts, self.gfix = None, None, "No Fix"
         self.odom, self.odom_anchored, self.prev, self.last_seq = None, False, None, None
@@ -295,6 +269,42 @@ class PygameVisualiser:
     def say(self, text, secs=4.0):
         self.msg, self.msg_until = text, time.monotonic() + secs
 
+    def world_to_latlon(self, wx, wy):
+        lat0, lon0 = self.ref if self.ref else (self.a.ref_lat, self.a.ref_lon)
+        lat = lat0 + wy / M_PER_DEG
+        lon = lon0 + wx / (M_PER_DEG * math.cos(math.radians(lat0)))
+        return lat, lon
+
+    def latlon_to_world(self, lat, lon):
+        lat0, lon0 = self.ref if self.ref else (self.a.ref_lat, self.a.ref_lon)
+        wy = (lat - lat0) * M_PER_DEG
+        wx = (lon - lon0) * M_PER_DEG * math.cos(math.radians(lat0))
+        return wx, wy
+
+    def load_waypoints_json(self, path):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            if "ref_lat" in data and "ref_lon" in data and self.ref is None:
+                self.ref = (data["ref_lat"], data["ref_lon"])
+            
+            self.recorded_waypoints = []
+            for wp in data.get("waypoints", []):
+                if "lat" in wp and "lon" in wp:
+                    wx, wy = self.latlon_to_world(wp["lat"], wp["lon"])
+                else:
+                    wx, wy = wp.get("x", 0.0), wp.get("y", 0.0)
+                
+                self.recorded_waypoints.append({
+                    "x": wx,
+                    "y": wy,
+                    "wait_sec": wp.get("wait_sec", 0),
+                    "action": wp.get("action", "none")
+                })
+            print(f"[WAYPOINTS] Loaded {len(self.recorded_waypoints)} waypoints from {path}")
+        except Exception as e:
+            print(f"[WAYPOINTS ERROR] Could not load waypoints from {path}: {e}")
+
     def save_map_and_metadata(self):
         try:
             png_path = self.a.save_map
@@ -324,6 +334,33 @@ class PygameVisualiser:
             print(f"[MAP] Saved {os.path.abspath(png_path)} and {os.path.abspath(json_path)}")
         except Exception as e:
             self.say(f"could not save map: {e}", 6)
+
+    def save_recorded_waypoints(self):
+        if not self.recorded_waypoints:
+            self.say("No waypoints recorded to save.")
+            return
+        lat0, lon0 = self.ref if self.ref else (self.a.ref_lat, self.a.ref_lon)
+        data = {
+            "ref_lat": lat0,
+            "ref_lon": lon0,
+            "waypoints": []
+        }
+        for i, wp in enumerate(self.recorded_waypoints):
+            lat, lon = self.world_to_latlon(wp["x"], wp["y"])
+            data["waypoints"].append({
+                "id": i + 1,
+                "x": round(wp["x"], 3),
+                "y": round(wp["y"], 3),
+                "lat": round(lat, 7),
+                "lon": round(lon, 7),
+                "wait_sec": wp.get("wait_sec", 0),
+                "action": wp.get("action", "none")
+            })
+        path = "waypoints.json"
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        self.say(f"Saved {len(data['waypoints'])} GPS-anchored waypoints to {path}", 6)
+        print(f"[WAYPOINTS] Saved {len(data['waypoints'])} waypoints to {os.path.abspath(path)}")
 
     def run(self):
         last_control_tick = time.monotonic()
@@ -366,15 +403,31 @@ class PygameVisualiser:
                     self.keys.add(k)
                     self.released.pop(k, None)
                 elif k == pygame.K_SPACE:
-                    self.toggle_plan()
+                    if self.waypoint_record_mode:
+                        self.waypoint_record_mode = False
+                        self.save_recorded_waypoints()
+                        if self.recorded_waypoints:
+                            self.send_waypoint_route()
+                    else:
+                        self.waypoint_record_mode = True
+                        self.recorded_waypoints = []
+                        self.say("Waypoint Recording ON: Click & drag to draw custom route. Press Space to save & play.", 10)
+                elif k == pygame.K_p:
+                    if self.recorded_waypoints:
+                        self.send_waypoint_route()
+                    else:
+                        self.say("No waypoints loaded to play! Record or load waypoints.json first.")
                 elif k in (pygame.K_x, pygame.K_ESCAPE):
                     self.keys.clear()
                     self.released.clear()
-                    self.plan_mode, self.queue = False, []
-                    self.cancel_nav()
-                    self.say("stopped: navigation and route cancelled")
-                elif k in (pygame.K_LEFTBRACKET, pygame.K_RIGHTBRACKET):
-                    self.change_inflate(-1 if k == pygame.K_LEFTBRACKET else 1)
+                    if self.waypoint_record_mode:
+                        self.waypoint_record_mode = False
+                        self.recorded_waypoints = []
+                        self.say("Waypoint recording cancelled.")
+                    else:
+                        self.cancel_nav()
+                        self.current_action = "none"
+                        self.say("stopped: navigation cancelled")
                 elif k == pygame.K_c:
                     self.g_trail.clear()
                     self.o_trail.clear()
@@ -402,17 +455,43 @@ class PygameVisualiser:
                 mx, my = event.pos
                 if mx < self.map_panel_width:
                     wx, wy = self.screen_to_world(mx, my)
-                    if self.plan_mode:
+                    if self.waypoint_record_mode:
                         if event.button == 1:
-                            self.add_waypoint(wx, wy)
-                        elif event.button == 3:
-                            self.undo_waypoint()
+                            self.is_dragging = True
+                            self.drag_current_path = [(wx, wy)]
+                            if not self.recorded_waypoints:
+                                self.recorded_waypoints.append({"x": wx, "y": wy, "wait_sec": 0, "action": "none"})
+                                self.say(f"Started path at ({wx:+.1f}, {wy:+.1f}). Drag to draw route and release for waypoint.")
                     else:
                         if event.button == 3:
                             self.cancel_nav()
+                            self.current_action = "none"
                             self.say("navigation cancelled")
                         elif event.button == 1:
                             self.start_nav(wx, wy)
+            elif event.type == pygame.MOUSEMOTION:
+                if self.waypoint_record_mode and self.is_dragging:
+                    mx, my = event.pos
+                    if mx < self.map_panel_width:
+                        wx, wy = self.screen_to_world(mx, my)
+                        # Append intermediate points if far enough from last point to form smooth custom curves/bulb turns
+                        if not self.drag_current_path or math.hypot(wx - self.drag_current_path[-1][0], wy - self.drag_current_path[-1][1]) > 0.3:
+                            self.drag_current_path.append((wx, wy))
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if self.waypoint_record_mode and self.is_dragging:
+                    if event.button == 1:
+                        self.is_dragging = False
+                        mx, my = event.pos
+                        wx, wy = self.screen_to_world(min(mx, self.map_panel_width - 1), my)
+                        
+                        # Add all intermediate drag points as sequential waypoints to preserve custom non-optimal routes/bulb turns
+                        for pt in self.drag_current_path[1:]:
+                            self.recorded_waypoints.append({"x": pt[0], "y": pt[1], "wait_sec": 0, "action": "none"})
+                        self.recorded_waypoints.append({"x": wx, "y": wy, "wait_sec": 0, "action": "none"})
+                        
+                        wp_num = len(self.recorded_waypoints)
+                        self.say(f"Added Waypoint {wp_num} via custom stroke path. Click & drag for next.")
+                        self.drag_current_path = []
 
     def screen_to_world(self, sx, sy):
         target = (self.disp[0], self.disp[1]) if self.disp is not None else (self.tel if self.tel else (0.0, 0.0))
@@ -434,118 +513,58 @@ class PygameVisualiser:
     def map_panel_height(self):
         return self.height
 
-    def toggle_plan(self):
-        if not self.a.drive:
-            self.say("view-only mode (--no-drive): not driving")
-            return
-        if not self.plan_mode:
-            self.plan_mode, self.queue = True, []
-            self.cached_drivable_surf = None
-            self.say("PLAN: click inside fuchsia to queue waypoints | right-click = undo | space = go | x = abort", 10)
-            return
-        self.plan_mode = False
-        queued, self.queue = list(self.queue), []
-        if queued:
-            self.send_route(queued)
-        else:
-            self.say("plan mode off (nothing was queued)")
-
-    def add_waypoint(self, x, y):
-        mask = self.drivable()
-        row, col = self.grid.to_cell(x, y)
-        if not self.grid.inside(row, col) or not mask[row, col]:
-            self.say(f"can't go there: not free or within {self.inflate:.2f}m of wall", 4)
-            return
-        self.queue.append((float(x), float(y)))
-        self.say(f"waypoint {len(self.queue)} queued ({x:+.1f}, {y:+.1f}) | space = go")
-
-    def undo_waypoint(self):
-        if self.queue:
-            self.queue.pop()
-            self.say(f"removed last waypoint; {len(self.queue)} queued")
-        else:
-            self.say("nothing queued")
-
-    def change_inflate(self, direction):
-        step = self.a.plan_res if self.a.plan_res > 0 else 0.05
-        self.inflate = clamp(round(self.inflate + direction * step, 3), 0.0, 1.5)
-        self.drive_key = None
-        self.cached_drivable_surf = None
-        note = ""
-        if self.plan_mode and self.queue:
-            mask = self.drivable()
-            keep = []
-            for (qx, qy) in self.queue:
-                r, c = self.grid.to_cell(qx, qy)
-                if self.grid.inside(r, c) and mask[r, c]:
-                    keep.append((qx, qy))
-            dropped, self.queue = len(self.queue) - len(keep), keep
-            if dropped:
-                note += f" ({dropped} dropped)"
-        self.say(f"keep-out distance {self.inflate:.2f} m{note}", 6)
-
-    def drivable(self):
-        key = (self.grid.scans, round(self.inflate, 3), self.a.plan_res)
-        if key != self.drive_key:
-            self.drive_key = key
-            self.drive_mask = drivable_area(self.grid, self.inflate, self.a.plan_res)
-            self.cached_drivable_surf = None
-        return self.drive_mask
-
-    def send_route(self, pts):
-        self.keys.clear()
-        try:
-            self.pub.send("goal", action="route", route=[[x, y] for x, y in pts], inflate=float(self.inflate))
-        except Exception as e:
-            self.say(f"could not send route: {e}", 6)
-            return
-        self.nav_goal_xy = pts[-1]
-        self.route_shown, self.route_done = list(pts), 0
-        n = len(pts)
-        if not self.builtin:
-            self.ext_path = None
-            self.say(f"route of {n} waypoints sent on bus (port 5008)", 6)
-            return
-        pose, why = self.nav_pose()
-        if pose is None:
-            self.say(f"can't navigate yet: {why}", 6)
-            return
-        self.route_todo = list(pts[1:])
-        self.nav.set_goal(pts[0][0], pts[0][1], pose)
-        self.chain_after = time.monotonic() + 1.5
-        self.say(f"driving route of {n} waypoints")
-
     def cancel_nav(self, publish=True):
         self.nav.cancel()
         self.nav_goal_xy = None
         self.ext_path = None
-        self.route_shown, self.route_todo, self.route_done = [], [], 0
+        self.current_action = "none"
         if publish and self.a.drive:
             try:
                 self.pub.send("goal", action="cancel")
             except Exception:
                 pass
 
-    def start_nav(self, x, y):
+    def start_nav(self, x, y, action="none", wait_sec=0):
         if not self.a.drive:
             self.say("view-only mode (--no-drive)")
             return
         self.keys.clear()
+        self.current_action = action
         try:
-            self.pub.send("goal", action="go", x=x, y=y, inflate=float(self.inflate))
+            self.pub.send("goal", action="go", x=x, y=y, inflate=float(self.inflate), task_action=action, wait_sec=wait_sec)
         except Exception as e:
             self.say(f"could not publish goal: {e}", 6)
         self.nav_goal_xy = (x, y)
         if not self.builtin:
             self.ext_path = None
-            self.say(f"goal ({x:+.1f}, {y:+.1f}) sent on bus", 6)
+            self.say(f"goal ({x:+.1f}, {y:+.1f}) [action: {action}, wait: {wait_sec}s] sent on bus", 6)
             return
         pose, why = self.nav_pose()
         if pose is None:
             self.say(f"can't navigate yet: {why}", 6)
             return
         self.nav.set_goal(x, y, pose)
-        self.say(f"driving to ({x:+.1f}, {y:+.1f})")
+        self.say(f"driving to ({x:+.1f}, {y:+.1f}) [action: {action}]")
+
+    def send_waypoint_route(self):
+        if not self.a.drive:
+            self.say("view-only mode (--no-drive)")
+            return
+        self.keys.clear()
+        
+        # Must match C++ json_xy_list format: [[x, y], [x, y], ...]
+        route_payload = [[float(wp["x"]), float(wp["y"])] for wp in self.recorded_waypoints]
+        
+        try:
+            self.pub.send("goal", action="route", route=route_payload, inflate=float(self.inflate))
+        except Exception as e:
+            self.say(f"could not send waypoint route: {e}", 6)
+            return
+        
+        self.nav_goal_xy = (self.recorded_waypoints[-1]["x"], self.recorded_waypoints[-1]["y"])
+        self.current_action = self.recorded_waypoints[0].get("action", "none")
+        self.say(f"Dispatched custom route of {len(self.recorded_waypoints)} waypoints!", 6)
+        print(f"[WAYPOINTS] Dispatched full custom route containing {len(self.recorded_waypoints)} points.")
 
     def nav_pose(self):
         now = time.time()
@@ -568,7 +587,6 @@ class PygameVisualiser:
         lin = ((pygame.K_UP in self.keys) - (pygame.K_DOWN in self.keys)) * self.a.max_speed
         ang = ((pygame.K_LEFT in self.keys) - (pygame.K_RIGHT in self.keys)) * self.a.max_turn
 
-        # Ackerman teleop constraint: cannot turn on the spot when linear speed is zero
         if abs(lin) < 0.05:
             ang = 0.0
 
@@ -643,7 +661,6 @@ class PygameVisualiser:
             return
         cv, cw = self.goal_cmd()
 
-        # Ackerman constraint for path tracking
         if abs(cv) < 0.05:
             cw = 0.0
 
@@ -672,7 +689,6 @@ class PygameVisualiser:
         if not self.goal_trail or math.hypot(d[0] - self.goal_trail[-1][0], d[1] - self.goal_trail[-1][1]) > 0.02:
             self.goal_trail.append((d[0], d[1]))
 
-        # Update trailer position tied to goal robot display
         if self.disp is not None and self.trailer_enabled:
             self.step_trailer(self.disp[0], self.disp[1], self.disp[2], dt)
 
@@ -819,11 +835,12 @@ class PygameVisualiser:
             elif t == "goal" and not self.builtin:
                 if m["action"] == "go":
                     self.nav_goal_xy = (m["x"], m["y"])
+                    self.current_action = m.get("task_action", "none")
                 elif m["action"] == "route":
                     self.nav_goal_xy = tuple(m["route"][-1])
                 else:
                     self.nav_goal_xy, self.ext_path = None, None
-                    self.route_shown, self.route_done = [], 0
+                    self.current_action = "none"
 
         if self.odom is not None and not self.odom_anchored and self.gpos is not None:
             self.odom, self.odom_anchored = list(self.gpos), True
@@ -863,11 +880,6 @@ class PygameVisualiser:
         self._maybe_map(now)
 
     def _route_progress(self):
-        if self.route_shown and self.ghost is not None:
-            while self.route_shown and math.hypot(self.route_shown[0][0] - self.ghost[0],
-                                                  self.route_shown[0][1] - self.ghost[1]) < 0.4:
-                self.route_shown.pop(0)
-                self.route_done += 1
         if (self.builtin and self.route_todo and not self.nav.active and self.nav.state == "arrived"
                 and time.monotonic() > self.chain_after):
             pose, _why = self.nav_pose()
@@ -932,25 +944,10 @@ class PygameVisualiser:
                 rgb_arr = np.repeat((grid_img * 255).astype(np.uint8)[..., None], 3, axis=-1)
                 grid_surf = pygame.image.frombuffer(rgb_arr.tobytes(), (gw, gh), "RGB")
                 self.cached_grid_surf = pygame.transform.scale(grid_surf, (scaled_w, scaled_h))
-                self.cached_drivable_surf = None
 
             top_left_wx, top_left_wy = l, t
             tl_sx, tl_sy = self.world_to_screen(top_left_wx, top_left_wy)
             surf.blit(self.cached_grid_surf, (tl_sx, tl_sy))
-
-        if self.plan_mode:
-            mask = self.drivable()
-            if mask is not None:
-                if self.cached_drivable_surf is None:
-                    mh, mw = mask.shape
-                    rgba = np.zeros((mh, mw, 4), dtype=np.uint8)
-                    rgba[mask] = [255, 0, 204, 120]
-                    drivable_raw = pygame.image.frombuffer(rgba.tobytes(), (mw, mh), "RGBA")
-                    self.cached_drivable_surf = pygame.transform.scale(drivable_raw, (scaled_w, scaled_h))
-                
-                top_left_wx, top_left_wy = l, t
-                tl_sx, tl_sy = self.world_to_screen(top_left_wx, top_left_wy)
-                surf.blit(self.cached_drivable_surf, (tl_sx, tl_sy))
 
         if len(self.g_trail) > 1:
             pts = [self.world_to_screen(p[0], p[1]) for p in list(self.g_trail)[::2]]
@@ -973,11 +970,6 @@ class PygameVisualiser:
         if shown and len(shown) > 1:
             pts = [self.world_to_screen(p[0], p[1]) for p in shown]
             pygame.draw.lines(surf, CYAN, False, pts, 2)
-
-        if self.nav_goal_xy and (self.nav.active or not self.builtin):
-            gx, gy = self.world_to_screen(*self.nav_goal_xy)
-            pygame.draw.circle(surf, CYAN, (gx, gy), 8)
-            pygame.draw.circle(surf, WHITE, (gx, gy), 8, 1)
 
         if self.lidar_dist is not None and time.time() - self.lidar_ts <= LIDAR_STALE_S and self.est.has_fix():
             x, y, yaw = self.est.pose_at(self.lidar_ts)
@@ -1021,24 +1013,28 @@ class PygameVisualiser:
             p2 = self.world_to_screen(tx, ty)
             pygame.draw.line(surf, WHITE, p1, p2, 3)
 
-        pts = self.queue if self.plan_mode else self.route_shown
-        first_num = 1 if self.plan_mode else self.route_done + 1
-        if pts:
-            screen_pts = [self.world_to_screen(p[0], p[1]) for p in pts]
-            if len(screen_pts) > 1:
-                pygame.draw.lines(surf, FUCHSIA, False, screen_pts, 2)
-            for i, (sx, sy) in enumerate(screen_pts):
-                pygame.draw.circle(surf, FUCHSIA, (sx, sy), 8)
-                pygame.draw.circle(surf, WHITE, (sx, sy), 8, 1)
-                lbl = self.font_sm.render(str(first_num + i), True, WHITE)
-                surf.blit(lbl, (sx - 4, sy - 6))
+        # Render Waypoint Recording Overlay or Loaded Waypoints Preview
+        if self.waypoint_record_mode or self.recorded_waypoints:
+            if self.recorded_waypoints:
+                screen_pts = [self.world_to_screen(wp["x"], wp["y"]) for wp in self.recorded_waypoints]
+                if len(screen_pts) > 1:
+                    pygame.draw.lines(surf, AMBER, False, screen_pts, 2)
+                for i, (sx, sy) in enumerate(screen_pts):
+                    pygame.draw.circle(surf, AMBER, (sx, sy), 8)
+                    pygame.draw.circle(surf, WHITE, (sx, sy), 8, 1)
+                    lbl = self.font_sm.render(str(i + 1), True, BLACK)
+                    surf.blit(lbl, (sx - 4, sy - 6))
+            if self.drag_current_path:
+                drag_screen_pts = [self.world_to_screen(p[0], p[1]) for p in self.drag_current_path]
+                if len(drag_screen_pts) > 1:
+                    pygame.draw.lines(surf, CYAN, False, drag_screen_pts, 2)
 
         txt = self.msg if time.monotonic() < self.msg_until else ""
         status = self._nav_status() if (self.nav.active or self.nav.state in ("arrived",) or not self.builtin) else ""
-        if self.plan_mode:
-            status = f"PLAN MODE: {len(self.queue)} queued. Click to add, Space to go."
+        if self.waypoint_record_mode:
+            status = f"RECORDING PATH: {len(self.recorded_waypoints)} pts. Press Space to save & play."
         
-        display_txt = txt if txt else (status if status else "Click map to drive | Space: plan route | Arrows: teleop")
+        display_txt = txt if txt else (status if status else "Click map to drive | Space: record | P: play route | Arrows: teleop")
         msg_surf = self.font_md.render(display_txt, True, CYAN)
         surf.blit(msg_surf, (15, self.height - 35))
 
@@ -1048,9 +1044,9 @@ class PygameVisualiser:
         if self.builtin:
             return self.nav.status()
         if self.nav_goal_xy is None:
-            return "external planner: click map to send goal"
+            return "external planner: click map or press P to play route"
         n = len(self.ext_path) if self.ext_path else 0
-        return f"goal ({self.nav_goal_xy[0]:+.1f}, {self.nav_goal_xy[1]:+.1f}) -> path {n} pts"
+        return f"goal ({self.nav_goal_xy[0]:+.1f}, {self.nav_goal_xy[1]:+.1f}) [act: {self.current_action}]"
 
     def _render_side_panel(self):
         rv, es = self.rv, self.es
@@ -1084,6 +1080,21 @@ class PygameVisualiser:
         rows.append((f"  yaw   {math.degrees(fx[4]) if fx else math.degrees(self.o_yaw):+6.1f} deg", WHITE, self.font_md))
 
         rows.append(("", WHITE, self.font_sm))
+        rows.append(("MISSION & ACTION", CYAN, self.font_lg))
+        act_color = GREEN if self.current_action != "none" else WHITE
+        rows.append((f"  action : {self.current_action}", act_color, self.font_md))
+        rows.append((f"  waypoints : {len(self.recorded_waypoints)} loaded", WHITE, self.font_sm))
+
+        rows.append(("", WHITE, self.font_sm))
+        rows.append(("HEADING & DRIFT MONITOR", CYAN, self.font_lg))
+        imu_deg = math.degrees(self.o_yaw)
+        # If placed, show offset between GNSS/Localiser correction and raw odom yaw
+        yaw_error = math.degrees(wrap(self.yaw_off)) if self.placed else 0.0
+        rows.append((f"  Raw Odom Yaw : {imu_deg:+6.1f}°", WHITE, self.font_md))
+        drift_col = RED if abs(yaw_error) > 3.0 else (AMBER if abs(yaw_error) > 1.0 else GREEN)
+        rows.append((f"  ICP/GPS Drift: {yaw_error:+6.1f}°", drift_col, self.font_md))
+
+        rows.append(("", WHITE, self.font_sm))
         rows.append(("ESP32  (esp, port 5006)", CYAN, self.font_lg))
         if not es:
             rows.append(("  NO DATA", RED, self.font_md))
@@ -1112,7 +1123,8 @@ class PygameVisualiser:
         rows.append(("", WHITE, self.font_sm))
         rows.append(("SHORTCUTS", CYAN, self.font_lg))
         rows.append(("  arrows : teleop", GREY, self.font_sm))
-        rows.append(("  space  : route plan", GREY, self.font_sm))
+        rows.append(("  space  : record waypoints", GREY, self.font_sm))
+        rows.append(("  p      : play loaded route", GREY, self.font_sm))
         rows.append(("  c / f / o / g / r / s : actions", GREY, self.font_sm))
 
         x_offset = self.map_panel_width + 15
@@ -1130,6 +1142,7 @@ def main():
     ap = argparse.ArgumentParser(description="Live robot visualiser + teleop + click-to-drive (Pygame)")
     ap.add_argument("--no-drive", action="store_true", help="view only: arrow keys and clicks do nothing, never publishes")
     ap.add_argument("--load-map", help="Path to a previously saved map image (e.g. learned_map.png)")
+    ap.add_argument("--load-waypoints", default="waypoints.json", help="Path to a saved waypoints JSON file to load on boot")
     ap.add_argument("--cmap", help="hidden world image")
     ap.add_argument("--invert", action="store_true", help="world image is black=free, white=wall")
     ap.add_argument("--show-world", action="store_true", help="overlay hidden world in translucent red")

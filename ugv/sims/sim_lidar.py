@@ -161,7 +161,7 @@ class LidarPublisher:
                     continue
 
                 payload = json.dumps({
-                    "timestamp": time.time(),
+                    "timestamp": time.monotonic(),
                     "points": points
                 }).encode('utf-8')
                 self.sock.sendto(payload, (self.udp_ip, self.udp_port))

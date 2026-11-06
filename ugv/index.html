@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>UGV Web Visualizer & Ground Station</title>
+  <style>
+    :root {
+      --bg-dark: #111115;
+      --panel-bg: #18181c;
+      --border-color: #28282e;
+      --text-main: #e8e8e8;
+      --text-muted: #8a8a8a;
+      --cyan: #00e5ff;
+      --green: #2ecc71;
+      --amber: #f1c40f;
+      --red: #ff5555;
+      --blue: #4aa3ff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+    }
+
+    #app-container {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    #map-container {
+      flex: 1;
+      height: 100%;
+      position: relative;
+      background-color: #111;
+      cursor: crosshair;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #top-bar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 10;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .glass-pill {
+      background: rgba(24, 24, 28, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      padding: 8px 14px;
+      border-radius: 6px;
+      pointer-events: auto;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--red);
+    }
+
+    .status-dot.connected {
+      background-color: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    input[type="text"] {
+      background: #111;
+      border: 1px solid var(--border-color);
+      color: var(--cyan);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+      width: 120px;
+    }
+
+    button {
+      background: #222;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      transition: background 0.15s;
+    }
+
+    button:hover {
+      background: #333;
+      color: var(--cyan);
+    }
+
+    #status-overlay {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      pointer-events: none;
+      z-index: 10;
+      color: var(--cyan);
+      font-size: 12px;
+      text-shadow: 1px 1px 2px black;
+      max-width: 60vw;
+    }
+
+    /* Virtual Touch Joystick */
+    #joystick-container {
+      position: absolute;
+      bottom: 24px;
+      right: 24px;
+      width: 140px;
+      height: 140px;
+      background: rgba(24, 24, 28, 0.8);
+      border: 2px solid var(--border-color);
+      border-radius: 50%;
+      z-index: 15;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+      touch-action: none;
+    }
+
+    #joystick-thumb {
+      width: 50px;
+      height: 50px;
+      background: var(--cyan);
+      border-radius: 50%;
+      position: absolute;
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+      transition: transform 0.05s linear;
+      pointer-events: none;
+    }
+
+    /* Side Telemetry Panel */
+    #side-panel {
+      width: 340px;
+      height: 100%;
+      background-color: var(--panel-bg);
+      border-left: 2px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      z-index: 20;
+      overflow-y: auto;
+      padding: 16px;
+      gap: 16px;
+    }
+
+    .panel-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: var(--cyan);
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .data-label {
+      color: var(--text-muted);
+    }
+
+    .data-val {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+
+    .val-good { color: var(--green); }
+    .val-warn { color: var(--amber); }
+
+    @media (max-width: 850px) {
+      #app-container { flex-direction: column; }
+      #side-panel { width: 100vw; height: 38vh; border-top: 2px solid var(--border-color); }
+      #map-container { height: 62vh; }
+      #joystick-container { bottom: 40vh; right: 16px; width: 120px; height: 120px; }
+      #joystick-thumb { width: 40px; height: 40px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app-container">
+    <div id="map-container">
+      <canvas id="mapCanvas"></canvas>
+
+      <div id="top-bar">
+        <div class="glass-pill">
+          <div id="ws-status" class="status-dot"></div>
+          <span>Bridge:</span>
+          <input type="text" id="ws-url" value="127.0.0.1:8765">
+          <button id="btn-connect">Connect</button>
+        </div>
+        <div class="glass-pill">
+          <button id="btn-clear">Clear Points</button>
+        </div>
+      </div>
+
+      <div id="status-overlay">
+        Tap map to send goal (Port 5008) | Drag joystick to drive (Ackermann/Skid-Steer)
+      </div>
+
+      <!-- Virtual Joystick -->
+      <div id="joystick-container">
+        <div id="joystick-thumb"></div>
+      </div>
+    </div>
+
+    <div id="side-panel">
+      <div class="panel-section">
+        <div class="section-title">GNSS (rtk:5007)</div>
+        <div class="data-row"><span class="data-label">Fix Quality</span><span id="rtk-fix" class="data-val val-warn">No Fix</span></div>
+        <div class="data-row"><span class="data-label">Satellites</span><span id="rtk-sats" class="data-val">0</span></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">Pose & Position</div>
+        <div class="data-row"><span class="data-label">Robot Local Pose</span><span id="pose-robot" class="data-val">X: +0.00 Y: +0.00</span></div>
+        <div class="data-row"><span class="data-label">Heading (Yaw)</span><span id="pose-yaw" class="data-val">+0.0°</span></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">ESP32 (esp:5006)</div>
+        <div class="data-row"><span class="data-label">Speed</span><span id="esp-speed" class="data-val">+0.00 m/s</span></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">Lidar (5005)</div>
+        <div class="data-row"><span class="data-label">Points</span><span id="lidar-pts" class="data-val">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    const canvas = document.getElementById('mapCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let pose = { x: 0, y: 0, yaw: 0 };
+    let lidarPoints = [];
+    let staticMapImg = null;
+    let mapMeta = null;
+
+    let viewZoom = 25; // pixels per meter
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Map frame: X=east, Y=north. Rover stays centered, map moves underneath.
+    function worldToScreen(wx, wy) {
+      const sx = (canvas.width / 2) + (wx - pose.x) * viewZoom;
+      const sy = (canvas.height / 2) - (wy - pose.y) * viewZoom;
+      return { x: sx, y: sy };
+    }
+
+    function screenToWorld(sx, sy) {
+      const wx = pose.x + (sx - (canvas.width / 2)) / viewZoom;
+      const wy = pose.y + ((canvas.height / 2) - sy) / viewZoom;
+      return { x: wx, y: wy };
+    }
+
+    // WebSocket Client
+    const btnConnect = document.getElementById('btn-connect');
+    const wsStatus = document.getElementById('ws-status');
+    const wsUrlInput = document.getElementById('ws-url');
+
+    function connectWS() {
+      const url = "ws://" + wsUrlInput.value;
+      if (ws) ws.close();
+
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        wsStatus.classList.add('connected');
+        document.getElementById('status-overlay').innerText = "Connected to Bridge: " + url;
+      };
+      ws.onclose = () => {
+        wsStatus.classList.remove('connected');
+        document.getElementById('status-overlay').innerText = "Disconnected from Bridge.";
+      };
+      ws.onerror = () => { wsStatus.classList.remove('connected'); };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          handleBusMessage(msg);
+        } catch(e) {}
+      };
+    }
+    btnConnect.addEventListener('click', connectWS);
+
+    function handleBusMessage(msg) {
+      const type = msg.type;
+      if (type === 'map_image') {
+        mapMeta = msg;
+        staticMapImg = new Image();
+        staticMapImg.src = msg.data_url;
+      } else if (type === 'rtk') {
+        document.getElementById('rtk-fix').innerText = msg.fix || 'No Fix';
+        document.getElementById('rtk-sats').innerText = `${msg.sats || 0}`;
+      } else if (type === 'esp') {
+        if (msg.enc) {
+          const spd = ((msg.enc.left_vel + msg.enc.right_vel) / 2 / 1000).toFixed(2);
+          document.getElementById('esp-speed').innerText = `${spd} m/s`;
+        }
+      } else if (type === 'lidar') {
+        if (msg.points) {
+          document.getElementById('lidar-pts').innerText = msg.points.length;
+          // Match visualiser.py lidar coordinate transformation: bearing = yaw - radians(angle)
+          lidarPoints = msg.points.map(pt => {
+            const bearing = pose.yaw - (pt[0] * Math.PI / 180.0);
+            const dist = pt[1] / 1000.0;
+            return {
+              x: pose.x + dist * Math.cos(bearing),
+              y: pose.y + dist * Math.sin(bearing)
+            };
+          });
+        }
+      } else if (type === 'pose') {
+        pose.x = msg.x;
+        pose.y = msg.y;
+        pose.yaw = msg.yaw;
+        document.getElementById('pose-robot').innerText = `X: ${msg.x.toFixed(2)} Y: ${msg.y.toFixed(2)}`;
+        document.getElementById('pose-yaw').innerText = `${(msg.yaw * 180 / Math.PI).toFixed(1)}°`;
+      }
+    }
+
+    // Render Loop
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw Static cmap.png background aligned with world coordinates
+      if (staticMapImg && staticMapImg.complete && mapMeta) {
+        ctx.save();
+        const topLeftW = -mapMeta.width_m / 2;
+        const bottomRightW = mapMeta.height_m / 2;
+        const sc = worldToScreen(topLeftW, bottomRightW);
+        ctx.drawImage(staticMapImg, sc.x, sc.y, mapMeta.width_m * viewZoom, mapMeta.height_m * viewZoom);
+        ctx.restore();
+      }
+
+      // Draw Lidar Scan Points locked to world/map
+      ctx.fillStyle = '#ff5555';
+      lidarPoints.forEach(pt => {
+        const sc = worldToScreen(pt.x, pt.y);
+        ctx.fillRect(sc.x - 1, sc.y - 1, 3, 3);
+      });
+
+      // Draw Robot (Centered like First-Person / Visualiser View)
+      const robotSc = worldToScreen(pose.x, pose.y);
+      ctx.save();
+      ctx.translate(robotSc.x, robotSc.y);
+      ctx.rotate(-pose.yaw);
+
+      const rWidth = 0.6 * viewZoom;
+      const rLength = 0.8 * viewZoom;
+
+      ctx.fillStyle = 'rgba(74, 163, 255, 0.8)';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.fillRect(-rLength / 2, -rWidth / 2, rLength, rWidth);
+      ctx.strokeRect(-rLength / 2, -rWidth / 2, rLength, rWidth);
+
+      ctx.fillStyle = '#00e5ff';
+      ctx.beginPath();
+      ctx.moveTo(rLength / 2, 0);
+      ctx.lineTo(rLength / 4, -rWidth / 4);
+      ctx.lineTo(rLength / 4, rWidth / 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+
+    // Click map to send goal to Port 5008
+    canvas.addEventListener('pointerdown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const pt = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'goal', action: 'go', x: pt.x, y: pt.y }));
+        document.getElementById('status-overlay').innerText = `Goal Sent on Port 5008: X=${pt.x.toFixed(2)}, Y=${pt.y.toFixed(2)}`;
+      }
+    });
+
+    // Circular Touch Joystick Handling (Simultaneous Forward + Turn)
+    const joyContainer = document.getElementById('joystick-container');
+    const joyThumb = document.getElementById('joystick-thumb');
+    let isDragging = false;
+    let cmdInterval = null;
+    let currentLin = 0;
+    let currentAng = 0;
+
+    function sendCmdVel(lin, ang) {
+      currentLin = lin;
+      currentAng = ang;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'cmd_vel', linear: lin, angular: ang }));
+      }
+    }
+
+    function handleJoystickMove(clientX, clientY) {
+      const rect = joyContainer.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      let dx = clientX - centerX;
+      let dy = clientY - centerY;
+      const maxRadius = rect.width / 2 - 25;
+      
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxRadius) {
+        dx = (dx / dist) * maxRadius;
+        dy = (dy / dist) * maxRadius;
+      }
+
+      joyThumb.style.transform = `translate(${dx}px, ${dy}px)`;
+
+      // Map Y (up/down) to linear speed (-1.0 to +1.0 m/s)
+      // Map X (left/right) to angular turn rate (-1.5 to +1.5 rad/s)
+      const linear = -(dy / maxRadius) * 1.0; 
+      const angular = -(dx / maxRadius) * 1.5;
+
+      sendCmdVel(linear, angular);
+    }
+
+    joyContainer.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      handleJoystickMove(e.clientX, e.clientY);
+      if (!cmdInterval) {
+        cmdInterval = setInterval(() => {
+          if (isDragging) sendCmdVel(currentLin, currentAng);
+        }, 100);
+      }
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (isDragging) handleJoystickMove(e.clientX, e.clientY);
+    });
+
+    const resetJoystick = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      joyThumb.style.transform = `translate(0px, 0px)`;
+      if (cmdInterval) {
+        clearInterval(cmdInterval);
+        cmdInterval = null;
+      }
+      sendCmdVel(0.0, 0.0);
+    };
+
+    window.addEventListener('pointerup', resetJoystick);
+    window.addEventListener('pointercancel', resetJoystick);
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      lidarPoints = [];
+    });
+  </script>
+</body>
+</html>

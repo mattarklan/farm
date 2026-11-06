@@ -1496,7 +1496,6 @@ CMakeFiles/rover_app.dir/src/main.cpp.obj: C:/Users/Matt/Desktop/farm/ugv/src/ma
   C:/w64devkit/include/psdk_inc/_ws1_undef.h \
   C:/w64devkit/include/psdk_inc/_wsa_errnos.h \
   C:/w64devkit/include/psdk_inc/_wsadata.h \
-  C:/w64devkit/include/psdk_inc/_xmitfile.h \
   C:/w64devkit/include/psdk_inc/intrin-impl.h \
   C:/w64devkit/include/pshpack1.h \
   C:/w64devkit/include/pshpack2.h \
